@@ -1,0 +1,161 @@
+{% extends "base.html" %} {% block title %}Analysis - Crop Stress Prediction{%
+endblock %} {% block content %}
+<div class="page-header">
+  <div class="section-tag">Detailed Analysis</div>
+  <h1>📈 Comprehensive Model Analysis</h1>
+</div>
+
+<div class="glass-card">
+  <h2>Analysis Tools</h2>
+  <div class="analysis-tabs">
+    <button class="tab-button active" onclick="showTab('comparison')">
+      Model Comparison
+    </button>
+    <button class="tab-button" onclick="showTab('metrics')">
+      Performance Metrics
+    </button>
+    <button class="tab-button" onclick="showTab('features')">
+      Feature Analysis
+    </button>
+    <button class="tab-button" onclick="showTab('summary')">
+      Training Summary
+    </button>
+  </div>
+</div>
+
+<!-- Model Comparison Tab -->
+<div id="comparison" class="tab-content active glass-card full-width">
+  <h2>Model Performance Comparison</h2>
+  <canvas id="comparisonChart" height="300"></canvas>
+</div>
+
+<!-- Performance Metrics Tab -->
+<div
+  id="metrics"
+  class="tab-content glass-card full-width"
+  style="display: none"
+>
+  <h2>Performance Metrics</h2>
+  <div class="table-container">{{ model_comparison | safe }}</div>
+</div>
+
+<!-- Features Tab -->
+<div
+  id="features"
+  class="tab-content glass-card full-width"
+  style="display: none"
+>
+  <h2>Selected Features for Prediction</h2>
+  <div class="features-list">
+    {% for feature in report.selected_features %}
+    <span class="feature-tag">{{ feature | replace('_', ' ') | title }}</span>
+    {% endfor %}
+  </div>
+  <p>
+    <strong>Total Features Used:</strong> {{ report.selected_features | length
+    }}
+  </p>
+</div>
+
+<!-- Summary Tab -->
+<div
+  id="summary"
+  class="tab-content glass-card full-width"
+  style="display: none"
+>
+  <h2>Training Summary</h2>
+  <pre id="summaryText">Loading summary...</pre>
+</div>
+
+<script>
+  let comparisonChart;
+
+  function showTab(tabName) {
+      // Hide all tabs
+      document.querySelectorAll('.tab-content').forEach(el => {
+          el.style.display = 'none';
+      });
+      document.querySelectorAll('.tab-button').forEach(el => {
+          el.classList.remove('active');
+      });
+
+      // Show selected tab
+      document.getElementById(tabName).style.display = 'block';
+      event.target.classList.add('active');
+
+      // Initialize chart for comparison tab
+      if (tabName === 'comparison' && !comparisonChart) {
+          initComparisonChart();
+      }
+  }
+
+  function initComparisonChart() {
+      const ctx = document.getElementById('comparisonChart');
+      const report = {{ report | tojson }};
+      const modelData = Object.entries(report.models).map(([key, model]) => ({
+          name: model.label,
+          f1: model.average_f1_score,
+          accuracy: model.average_accuracy || 0
+      }));
+
+      comparisonChart = new Chart(ctx, {
+          type: 'radar',
+          data: {
+              labels: ['F1-Score', 'Accuracy'],
+              datasets: modelData.map((model, index) => ({
+                  label: model.name,
+                  data: [parseFloat(model.f1), parseFloat(model.accuracy)],
+                  borderColor: ['#2f8f57', '#cc5a2c', '#d5a021', '#2e7d4c'][index],
+                  backgroundColor: ['rgba(47, 143, 87, 0.2)', 'rgba(204, 90, 44, 0.2)',
+                                    'rgba(213, 160, 33, 0.2)', 'rgba(46, 125, 76, 0.2)'][index],
+                  borderWidth: 2,
+                  pointRadius: 5,
+                  pointHoverRadius: 7
+              }))
+          },
+          options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                  r: {
+                      beginAtZero: true,
+                      max: 1,
+                      ticks: { stepSize: 0.2 }
+                  }
+              },
+              plugins: {
+                  legend: { position: 'top' }
+              }
+          }
+      });
+  }
+
+  // Load summary on page load
+  document.addEventListener('DOMContentLoaded', () => {
+      const report = {{ report | tojson }};
+      const summaryLines = [
+          `Crop Stress Prediction - Training Summary`,
+          `═══════════════════════════════════════`,
+          ``,
+          `Dataset Configuration:`,
+          `  • Features Selected: ${report.selected_features.length}`,
+          `  • Training Size: ~80%`,
+          `  • Test Size: ~20%`,
+          `  • Cross-Validation Folds: 5`,
+          ``,
+          `Soil Parameters: ${report.soil_parameters.length}`,
+          ``,
+          `Models Trained:`,
+          ...Object.entries(report.models).map(([name, details]) =>
+              `  • ${details.label}: F1=${(parseFloat(details.average_f1_score)).toFixed(4)}`
+          ),
+          ``,
+          `Best Model: ${report.best_model.label}`,
+          `Best F1-Score: ${(parseFloat(report.best_model.average_f1_score)).toFixed(4)}`,
+          ``,
+          `Status: Training Completed Successfully ✅`
+      ];
+      document.getElementById('summaryText').textContent = summaryLines.join('\n');
+  });
+</script>
+{% endblock %}

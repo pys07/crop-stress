@@ -1,0 +1,147 @@
+{% extends "base.html" %} {% block title %}Project Info - Crop Stress
+Prediction{% endblock %} {% block content %}
+<div class="page-header">
+  <div class="section-tag">Project Information</div>
+  <h1>ℹ️ Project Overview & Workflow</h1>
+</div>
+
+<div class="content-grid">
+  <div class="glass-card">
+    <h2>🎯 Project Objectives</h2>
+    <ul class="objectives-list">
+      <li>Predict crop stress early using machine learning</li>
+      <li>Compare multiple model architectures</li>
+      <li>Support proactive farm management decisions</li>
+      <li>Integrate traditional ML with neural networks</li>
+    </ul>
+  </div>
+
+  <div class="glass-card">
+    <h2>📊 Models Implemented</h2>
+    <div class="models-list">
+      {% for model in models %}
+      <div class="model-item">
+        <div class="model-name">{{ model.name }}</div>
+        <div class="model-type">{{ model.type }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="glass-card full-width">
+  <h2>🔄 ML Training Pipeline</h2>
+  <div class="timeline">
+    <div class="timeline-item">
+      <div class="timeline-marker">1</div>
+      <div class="timeline-content">
+        <div class="timeline-title">Data Loading</div>
+        <div class="timeline-desc">
+          Load crop stress dataset with weather and soil features
+        </div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker">2</div>
+      <div class="timeline-content">
+        <div class="timeline-title">Preprocessing</div>
+        <div class="timeline-desc">Engineer calendar features (month, day, week)</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker">3</div>
+      <div class="timeline-content">
+        <div class="timeline-title">Feature Selection</div>
+        <div class="timeline-desc">Rank by importance, select top K features</div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker">4</div>
+      <div class="timeline-content">
+        <div class="timeline-title">Model Training</div>
+        <div class="timeline-desc">
+          Train all models independently for each stress type
+        </div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker">5</div>
+      <div class="timeline-content">
+        <div class="timeline-title">Evaluation</div>
+        <div class="timeline-desc">
+          Calculate comprehensive metrics (F1, Accuracy, AUC)
+        </div>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker">6</div>
+      <div class="timeline-content">
+        <div class="timeline-title">Prediction</div>
+        <div class="timeline-desc">Use best model for live field predictions</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card full-width">
+  <h2>📋 Training Configuration</h2>
+  <div class="config-grid">
+    <div class="config-item">
+      <div class="config-label">Test Size</div>
+      <div class="config-value">20%</div>
+    </div>
+    <div class="config-item">
+      <div class="config-label">Features Used</div>
+      <div class="config-value">{{ feature_count }}</div>
+    </div>
+    <div class="config-item">
+      <div class="config-label">Soil Parameters</div>
+      <div class="config-value">{{ soil_params_count }}</div>
+    </div>
+    <div class="config-item">
+      <div class="config-label">BiLSTM Sequence Length</div>
+      <div class="config-value">30 days</div>
+    </div>
+    <div class="config-item">
+      <div class="config-label">Target Variables</div>
+      <div class="config-value">{{ target_count }}</div>
+    </div>
+    <div class="config-item">
+      <div class="config-label">Cross-Validation Folds</div>
+      <div class="config-value">5</div>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card full-width">
+  <h2>📚 Technology Stack</h2>
+  <div class="tech-stack">
+    <div class="tech-category">
+      <h3>Machine Learning</h3>
+      <ul>
+        <li>scikit-learn - Traditional ML models</li>
+        <li>TensorFlow/Keras - Neural networks</li>
+        <li>NumPy - Numerical operations</li>
+        <li>Pandas - Data manipulation</li>
+      </ul>
+    </div>
+    <div class="tech-category">
+      <h3>Web Framework</h3>
+      <ul>
+        <li>Flask - Web server</li>
+        <li>Jinja2 - Template engine</li>
+        <li>Axios - HTTP client</li>
+        <li>Chart.js - Visualizations</li>
+      </ul>
+    </div>
+    <div class="tech-category">
+      <h3>Data & Storage</h3>
+      <ul>
+        <li>joblib - Model persistence</li>
+        <li>JSON - Configuration & reports</li>
+        <li>CSV - Data storage</li>
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

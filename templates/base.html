@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>
+      {% block title %}Crop Stress Prediction Platform{% endblock %}
+    </title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  </head>
+  <body>
+    <div class="app-container">
+      <!-- Sidebar Navigation -->
+      <nav class="sidebar">
+        <div class="nav-header">
+          <h1 class="nav-title">🌾 Crop Stress</h1>
+          <p class="nav-subtitle">Prediction Platform</p>
+        </div>
+
+        <div class="nav-links">
+          <a
+            href="/"
+            class="nav-link {% if request.path == '/' %}active{% endif %}"
+          >
+            <span class="nav-icon">🏠</span> Home
+          </a>
+          <a
+            href="/dashboard"
+            class="nav-link {% if request.path == '/dashboard' %}active{% endif %}"
+          >
+            <span class="nav-icon">📊</span> Dashboard
+          </a>
+          <a
+            href="/predictor"
+            class="nav-link {% if request.path == '/predictor' %}active{% endif %}"
+          >
+            <span class="nav-icon">🔮</span> Predictor
+          </a>
+          <a
+            href="/model-lab"
+            class="nav-link {% if request.path == '/model-lab' %}active{% endif %}"
+          >
+            <span class="nav-icon">🧪</span> Model Lab
+          </a>
+          <a
+            href="/analysis"
+            class="nav-link {% if request.path == '/analysis' %}active{% endif %}"
+          >
+            <span class="nav-icon">📈</span> Analysis
+          </a>
+          <a
+            href="/project-info"
+            class="nav-link {% if request.path == '/project-info' %}active{% endif %}"
+          >
+            <span class="nav-icon">ℹ️</span> Project Info
+          </a>
+        </div>
+
+        <div class="nav-footer">
+          <div class="theme-toggle">
+            <label class="toggle-label">
+              <input
+                type="checkbox"
+                id="darkModeToggle"
+                class="toggle-checkbox"
+              />
+              <span class="toggle-slider"></span>
+              <span class="toggle-text">Dark Mode</span>
+            </label>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Main Content -->
+      <main class="main-content">{% block content %}{% endblock %}</main>
+    </div>
+
+    <script>
+      // Dark mode toggle
+      const toggle = document.getElementById("darkModeToggle");
+      const savedTheme = localStorage.getItem("theme") || "light";
+
+      if (savedTheme === "dark") {
+        document.documentElement.setAttribute("data-theme", "dark");
+        toggle.checked = true;
+      }
+
+      toggle.addEventListener("change", () => {
+        const theme = toggle.checked ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+        localStorage.setItem("theme", theme);
+      });
+    </script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

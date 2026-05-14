@@ -1,0 +1,268 @@
+{% extends "base.html" %} {% block title %}Predictor - Crop Stress Prediction{%
+endblock %} {% block content %}
+<div class="page-header">
+  <div class="section-tag">Prediction Center</div>
+  <h1>🔮 Live Crop Stress Predictor</h1>
+  <p>
+    Enter soil and weather conditions to estimate crop stress probabilities.
+  </p>
+</div>
+
+<div class="content-grid">
+  <div class="glass-card">
+    <h2>⚙️ Prediction Settings</h2>
+
+    <div class="form-group">
+      <label for="modelSelect">Choose Prediction Model:</label>
+      <div class="model-toggle" id="modelToggle">
+        {% for model_key, model_label in models.items() %}
+        <button
+          type="button"
+          class="toggle-pill"
+          data-model="{{ model_key }}"
+        >
+          {{ model_label }}
+        </button>
+        {% endfor %}
+      </div>
+      <select id="modelSelect" class="select-input visually-hidden">
+        {% for model_key, model_label in models.items() %}
+        <option value="{{ model_key }}" {% if model_key == best_model %}selected{% endif %}>
+          {{ model_label }}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-info">
+      <strong>Active Soil Inputs:</strong>
+      <p>{{ soil_params | join(', ') | replace('_', ' ') | title }}</p>
+    </div>
+  </div>
+
+  <div class="glass-card">
+    <h2>🌤️ Weather & Time Parameters</h2>
+    <div class="sliders-group" id="weatherSliders">
+      <!-- Populated by JavaScript -->
+    </div>
+  </div>
+
+  <div class="glass-card full-width">
+    <h2>🌱 Soil Parameters</h2>
+    <div class="sliders-group" id="soilSliders">
+      <!-- Populated by JavaScript -->
+    </div>
+  </div>
+</div>
+
+<div class="glass-card full-width">
+  <button
+    id="predictButton"
+    class="btn btn-primary btn-large"
+    onclick="makePrediction()"
+  >
+    🎯 Predict Stress
+  </button>
+  <div id="loadingSpinner" class="spinner" style="display: none"></div>
+  <div
+    id="predictError"
+    class="error"
+    style="display: none; margin-top: 0.8rem"
+  ></div>
+</div>
+
+<div id="resultsContainer" style="display: none">
+  <div class="page-header">
+    <h2>📊 Prediction Results</h2>
+  </div>
+
+  <div class="predictions-grid">
+    <div class="prediction-card temperature">
+      <div class="prediction-label">Temperature Stress</div>
+      <div class="prediction-value" id="tempValue">--</div>
+      <div class="prediction-risk" id="tempRisk">--</div>
+    </div>
+
+    <div class="prediction-card water">
+      <div class="prediction-label">Water Stress</div>
+      <div class="prediction-value" id="waterValue">--</div>
+      <div class="prediction-risk" id="waterRisk">--</div>
+    </div>
+
+    <div class="prediction-card waterlog">
+      <div class="prediction-label">Waterlogging Stress</div>
+      <div class="prediction-value" id="waterlogValue">--</div>
+      <div class="prediction-risk" id="waterlogRisk">--</div>
+    </div>
+  </div>
+
+  <div class="glass-card full-width">
+    <h2>💡 Suggested Actions</h2>
+    <div id="recommendationsContainer">
+      <!-- Populated by JavaScript -->
+    </div>
+  </div>
+</div>
+
+<script>
+  const sliders = JSON.parse('{{ sliders | tojson | safe }}');
+    const modelToggle = document.getElementById('modelToggle');
+    const modelSelect = document.getElementById('modelSelect');
+
+    function syncModelToggle(value) {
+      [...modelToggle.querySelectorAll('.toggle-pill')].forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.model === value);
+      });
+      modelSelect.value = value;
+    }
+
+    modelToggle.addEventListener('click', (event) => {
+      const button = event.target.closest('.toggle-pill');
+      if (!button) return;
+      syncModelToggle(button.dataset.model);
+    });
+
+  function createSlider(feature, config) {
+      return `
+          <div class="slider-item">
+              <label>${config.label}</label>
+              <div class="slider-container">
+                  <input type="range"
+                         class="slider-input"
+                         id="slider_${feature}"
+                         min="${config.min}"
+                         max="${config.max}"
+                         step="0.01"
+                         value="${config.default}"
+                         oninput="updateSliderValue('${feature}')">
+                  <span class="slider-value" id="value_${feature}">${config.default}</span>
+              </div>
+          </div>
+      `;
+  }
+
+  function updateSliderValue(feature) {
+      const slider = document.getElementById(`slider_${feature}`);
+      const valueSpan = document.getElementById(`value_${feature}`);
+      valueSpan.textContent = parseFloat(slider.value).toFixed(2);
+  }
+
+  function getRiskColor(probability) {
+      if (probability >= 0.7) return { color: 'High', hex: '#cc5a2c' };
+      if (probability >= 0.4) return { color: 'Moderate', hex: '#d5a021' };
+      return { color: 'Low', hex: '#2f8f57' };
+  }
+
+    function showError(message) {
+      const errorBox = document.getElementById('predictError');
+      errorBox.textContent = message;
+      errorBox.style.display = 'block';
+    }
+
+    function clearError() {
+      const errorBox = document.getElementById('predictError');
+      errorBox.textContent = '';
+      errorBox.style.display = 'none';
+    }
+
+    function makePrediction() {
+      clearError();
+      const model = document.getElementById('modelSelect').value;
+      const payload = { model_name: model };
+
+      for (const feature in sliders) {
+          const slider = document.getElementById(`slider_${feature}`);
+          payload[feature] = parseFloat(slider.value);
+      }
+
+      document.getElementById('predictButton').disabled = true;
+      document.getElementById('loadingSpinner').style.display = 'block';
+
+        axios.post('/api/predict', payload)
+          .then(response => {
+            if (!response.data.success) {
+              showError(response.data.error || 'Prediction failed.');
+              return;
+            }
+
+            const predictions = response.data.predictions;
+            if (!predictions) {
+              showError('Prediction failed: empty response.');
+              return;
+            }
+
+            // Update prediction cards
+            const stressKeyMap = {
+              temperature_stress: 'temp',
+              water_stress: 'water',
+              waterlogging_stress: 'waterlog'
+            };
+
+            for (const [stressType, data] of Object.entries(predictions)) {
+              if (!data || typeof data.probability !== 'number') {
+                showError('Prediction failed: invalid response data.');
+                return;
+              }
+
+              const risk = getRiskColor(data.probability);
+              const percentage = (data.probability * 100).toFixed(1);
+
+              const stressKey = stressKeyMap[stressType] || stressType.replace('_stress', '');
+              document.getElementById(`${stressKey}Value`).textContent = `${percentage}%`;
+              document.getElementById(`${stressKey}Risk`).textContent = `${risk.color} risk`;
+              document.getElementById(`${stressKey}Risk`).style.color = risk.hex;
+            }
+
+            // Generate recommendations
+            generateRecommendations(predictions);
+            document.getElementById('resultsContainer').style.display = 'block';
+            document.getElementById('resultsContainer').scrollIntoView({ behavior: 'smooth' });
+          })
+          .catch(error => {
+            const message = error.response?.data?.error || error.message || 'Prediction request failed.';
+            showError(`Prediction error: ${message}`);
+          })
+          .finally(() => {
+            document.getElementById('predictButton').disabled = false;
+            document.getElementById('loadingSpinner').style.display = 'none';
+          });
+  }
+
+  function generateRecommendations(predictions) {
+      const recommendations = [];
+
+      if (['High', 'Moderate'].includes(predictions.temperature_stress.risk_level)) {
+          recommendations.push('Temperature stress risk is elevated. Consider mulching, shade nets, and revisiting irrigation timing.');
+      }
+      if (['High', 'Moderate'].includes(predictions.water_stress.risk_level)) {
+          recommendations.push('Water stress risk is elevated. Check root-zone moisture and plan timely irrigation support.');
+      }
+      if (['High', 'Moderate'].includes(predictions.waterlogging_stress.risk_level)) {
+          recommendations.push('Waterlogging risk is elevated. Improve drainage and reduce excess watering where possible.');
+      }
+      if (recommendations.length === 0) {
+          recommendations.push('Current conditions look stable with low stress risk across the selected stress types.');
+      }
+
+      const html = recommendations.map(r => `<div class="recommendation-item">• ${r}</div>`).join('');
+      document.getElementById('recommendationsContainer').innerHTML = html;
+  }
+
+  // Populate sliders on page load
+  document.addEventListener('DOMContentLoaded', () => {
+      syncModelToggle(modelSelect.value);
+      const soilHtml = Object.entries(sliders)
+          .filter(([_, config]) => config.is_soil)
+          .map(([feature, config]) => createSlider(feature, config))
+          .join('');
+
+      const weatherHtml = Object.entries(sliders)
+          .filter(([_, config]) => !config.is_soil)
+          .map(([feature, config]) => createSlider(feature, config))
+          .join('');
+
+      document.getElementById('soilSliders').innerHTML = soilHtml;
+      document.getElementById('weatherSliders').innerHTML = weatherHtml;
+  });
+</script>
+{% endblock %}

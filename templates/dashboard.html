@@ -1,0 +1,162 @@
+{% extends "base.html" %} {% block title %}Dashboard - Crop Stress Prediction{%
+endblock %} {% block content %}
+<div class="page-header">
+  <div class="section-tag">Analytics Dashboard</div>
+  <h1>📊 Field Analytics & Model Performance</h1>
+</div>
+
+<div class="content-grid">
+  <div class="glass-card">
+    <h2>🎯 Model Performance Comparison</h2>
+    <div style="height: 300px; position: relative">
+      <canvas id="modelChart"></canvas>
+    </div>
+  </div>
+
+  <div class="glass-card">
+    <h2>🌱 Stress Distribution</h2>
+    <div style="height: 300px; position: relative">
+      <canvas id="stressChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card full-width">
+  <h2>📋 Model Metrics Table</h2>
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th>Type</th>
+          <th>F1-Score</th>
+          <th>Accuracy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for model in model_data %}
+        <tr>
+          <td>{{ model.name }}</td>
+          <td><span class="badge">{{ model.type }}</span></td>
+          <td>{{ model.f1 }}</td>
+          <td>{{ model.accuracy }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if field_options %}
+<div class="glass-card full-width">
+  <h2>🏞️ Field Filter</h2>
+  <div class="filter-pills">
+    <span class="pill-label">Field</span>
+    <select id="fieldSelect" class="pill-select" onchange="updateDashboard()">
+      {% for field in field_options %}
+      <option value="{{ field }}">{{ field }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+{% endif %}
+
+<script>
+  let modelChart, stressChart;
+
+  function initCharts() {
+      // Model Performance Chart
+      const modelCanvas = document.getElementById('modelChart');
+      const modelCtx = modelCanvas.getContext('2d');
+      const modelGradient = modelCtx.createLinearGradient(0, 0, 0, 320);
+      modelGradient.addColorStop(0, 'rgba(76, 154, 111, 0.9)');
+      modelGradient.addColorStop(1, 'rgba(43, 94, 59, 0.35)');
+      modelChart = new Chart(modelCtx, {
+          type: 'bar',
+          data: {
+              labels: {{ model_data | map(attribute='name') | list | tojson }},
+              datasets: [{
+                  label: 'F1-Score',
+                  data: {{ model_data | map(attribute='f1') | list | tojson }}.map(v => parseFloat(v)),
+            backgroundColor: modelGradient,
+            borderColor: 'rgba(43, 94, 59, 1)',
+                  borderWidth: 2,
+                  borderRadius: 8
+              }]
+          },
+          options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                  legend: { display: false }
+              },
+              scales: {
+                  y: {
+                      beginAtZero: true,
+                      max: 1,
+                      ticks: {
+                          callback: function(value) {
+                              return (value * 100).toFixed(0) + '%';
+                          }
+                      }
+                  }
+              }
+          }
+      });
+
+      // Stress Distribution Chart
+        const stressCanvas = document.getElementById('stressChart');
+        const stressCtx = stressCanvas.getContext('2d');
+        const stressGradient = stressCtx.createLinearGradient(0, 0, 300, 0);
+        stressGradient.addColorStop(0, 'rgba(230, 126, 34, 0.85)');
+        stressGradient.addColorStop(1, 'rgba(76, 154, 111, 0.35)');
+      stressChart = new Chart(stressCtx, {
+          type: 'bar',
+          data: {
+              labels: {{ stress_rates.keys() | list | map('replace', '_', ' ') | map('title') | list | tojson }},
+              datasets: [{
+                  label: 'Stress Rate (%)',
+                  data: {{ stress_rates.values() | list | tojson }},
+              backgroundColor: stressGradient,
+              borderColor: 'rgba(230, 126, 34, 1)',
+                  borderWidth: 2,
+                  borderRadius: 8
+              }]
+          },
+          options: {
+              indexAxis: 'y',
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                  legend: { display: false }
+              },
+              scales: {
+                  x: {
+                      beginAtZero: true,
+                      max: 100
+                  }
+              }
+          }
+      });
+  }
+
+  function updateDashboard() {
+      const field = document.getElementById('fieldSelect')?.value || 'All Fields';
+      axios.get('/api/dashboard-data', {
+          params: { field: field }
+      }).then(response => {
+          if (response.data.success) {
+              // Update charts with new data
+              modelChart.data.datasets[0].data = response.data.model_scores.map(m => m.f1);
+              modelChart.update();
+
+              stressChart.data.datasets[0].data = response.data.stress_distribution.map(s => s.rate);
+              stressChart.update();
+          }
+      }).catch(error => console.error('Error updating dashboard:', error));
+  }
+
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', initCharts);
+</script>
+{% endblock %}

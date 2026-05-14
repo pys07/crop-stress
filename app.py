@@ -1,0 +1,1095 @@
+"""
+Streamlit Web Application - Crop Stress Prediction
+===================================================
+Interactive dashboard for model training, comparison, and field-level predictions.
+"""
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+import matplotlib.pyplot as plt
+import seaborn as sns
+from urllib.parse import quote
+
+from src.config import MODEL_LABELS, SOIL_PARAMETER_COLUMNS, TARGET_COLUMNS, MODEL_CHARACTERISTICS
+from src.ml_utils import (
+    get_feature_ranges,
+    load_dataset,
+    load_report,
+    predict_stress,
+    train_and_save_models,
+)
+from src.evaluation import (
+    create_summary_report,
+    plot_model_comparison,
+    plot_target_metrics,
+    plot_confusion_matrices,
+)
+
+st.set_page_config(page_title="Crop Stress Prediction", layout="wide")
+
+ASSET_PLANT_SVG = "assets/plant.svg"
+
+THEMES = {
+    "Light": {
+        "background": """
+            linear-gradient(180deg, rgba(249, 246, 240, 0.98), rgba(244, 246, 240, 0.96)),
+            radial-gradient(circle at 12% 18%, rgba(76, 154, 111, 0.18), transparent 55%),
+            radial-gradient(circle at 88% 12%, rgba(26, 74, 74, 0.12), transparent 50%),
+            linear-gradient(90deg, rgba(26, 74, 74, 0.05) 1px, transparent 1px),
+            linear-gradient(180deg, rgba(26, 74, 74, 0.05) 1px, transparent 1px)
+        """,
+        "text": "#1B2E2C",
+        "muted": "#546561",
+        "panel": "rgba(255, 255, 255, 0.78)",
+        "panel_border": "rgba(43, 94, 59, 0.12)",
+        "hero_a": "rgba(43, 94, 59, 0.96)",
+        "hero_b": "rgba(76, 154, 111, 0.92)",
+        "hero_text": "#f8f6ed",
+        "badge_bg": "rgba(43, 94, 59, 0.12)",
+        "badge_text": "#2B5E3B",
+        "accent": "#2B5E3B",
+        "chart_text": "#1A4A4A",
+        "grid": "#E6E0D6",
+    },
+    "Dark": {
+        "background": """
+            radial-gradient(circle at top left, rgba(91, 163, 104, 0.18), transparent 24%),
+            radial-gradient(circle at top right, rgba(220, 177, 49, 0.12), transparent 22%),
+            linear-gradient(180deg, #0e1711 0%, #132219 56%, #18291e 100%)
+        """,
+        "text": "#ecf2ea",
+        "muted": "#a8b7ac",
+        "panel": "rgba(20, 34, 25, 0.76)",
+        "panel_border": "rgba(157, 189, 166, 0.18)",
+        "hero_a": "rgba(34, 76, 48, 0.95)",
+        "hero_b": "rgba(126, 143, 64, 0.92)",
+        "hero_text": "#f4f7ef",
+        "badge_bg": "#203727",
+        "badge_text": "#dbeed9",
+        "accent": "#4C9A6F",
+        "chart_text": "#e6efe5",
+        "grid": "#35523d",
+    },
+}
+
+RISK_COLORS = {
+    "High": "#E67E22",
+    "Moderate": "#D9A441",
+    "Low": "#2f8f57",
+}
+
+
+@st.cache_data
+def get_dataset():
+    return load_dataset()
+
+
+@st.cache_data
+def get_report():
+    return load_report()
+
+
+@st.cache_data
+def load_svg_data_uri(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as file:
+        svg_text = file.read()
+    return f"data:image/svg+xml;utf8,{quote(svg_text)}"
+
+
+def prettify(name: str) -> str:
+    return name.replace("_", " ").replace("VPD", "VPD").title()
+
+
+def get_theme_name() -> str:
+    if "theme_name" not in st.session_state:
+        st.session_state.theme_name = "Light"
+    return st.session_state.theme_name
+
+
+def inject_styles(theme_name: str):
+    theme = THEMES[theme_name]
+    st.markdown(
+        f"""
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+        .stApp {{
+            background: {theme["background"]};
+            color: {theme["text"]};
+            font-family: "Poppins", "Segoe UI", sans-serif;
+        }}
+        .stApp::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320" fill="none"><path d="M24 280C88 230 152 210 216 220C252 226 284 242 304 260" stroke="%232B5E3B" stroke-opacity="0.08" stroke-width="3" stroke-linecap="round"/><path d="M16 40C62 78 110 92 160 86C204 80 248 56 296 16" stroke="%231A4A4A" stroke-opacity="0.08" stroke-width="2" stroke-linecap="round"/></svg>');
+            background-repeat: no-repeat;
+            background-position: right -60px top 80px;
+        }}
+        h1, h2, h3 {{
+            font-family: "Playfair Display", "Times New Roman", serif;
+            letter-spacing: 0.02em;
+        }}
+        .block-container {{
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }}
+        .hero-panel {{
+            padding: 2rem 2.2rem;
+            border-radius: 24px;
+            background: linear-gradient(135deg, {theme["hero_a"]}, {theme["hero_b"]});
+            color: {theme["hero_text"]};
+            box-shadow: 0 26px 56px rgba(19, 32, 28, 0.2);
+            margin-bottom: 1.25rem;
+            position: relative;
+            overflow: hidden;
+        }}
+        .hero-panel::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(120deg, rgba(255, 255, 255, 0.1), transparent 55%);
+            pointer-events: none;
+        }}
+        .hero-plant {{
+            position: absolute;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 120px;
+            height: 120px;
+            object-fit: contain;
+            opacity: 0.9;
+            filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.25));
+        }}
+        .hero-stress {{
+            position: absolute;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.25);
+            background: conic-gradient(rgba(230, 126, 34, 0.9) 0 120deg, rgba(76, 154, 111, 0.9) 120deg 240deg, rgba(26, 74, 74, 0.8) 240deg 360deg);
+            display: grid;
+            place-items: center;
+            animation: gaugePulse 3.5s ease-in-out infinite;
+        }}
+        .hero-stress::after {{
+            content: "";
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            background: rgba(14, 23, 17, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(6px);
+        }}
+        .hero-stress img {{
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+            position: relative;
+            z-index: 1;
+            filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.25));
+        }}
+        @keyframes gaugePulse {{
+            0% {{ transform: translateY(-50%) scale(1); }}
+            50% {{ transform: translateY(-50%) scale(1.04); }}
+            100% {{ transform: translateY(-50%) scale(1); }}
+        }}
+        .glass-card {{
+            padding: 1.1rem 1.2rem;
+            border-radius: 16px;
+            background: {theme["panel"]};
+            border: 1px solid {theme["panel_border"]};
+            box-shadow: 0 12px 28px rgba(19, 32, 28, 0.12);
+            backdrop-filter: blur(6px);
+        }}
+        .tooltip-card {{
+            background: rgba(26, 74, 74, 0.9) !important;
+            color: #f9f6f0 !important;
+            border-radius: 10px !important;
+            padding: 8px 12px !important;
+            font-size: 0.85rem !important;
+        }}
+        .stat-card {{
+            padding: 1rem 1.1rem;
+            border-radius: 16px;
+            background: {theme["panel"]};
+            border: 1px solid {theme["panel_border"]};
+            box-shadow: 0 12px 24px rgba(19, 32, 28, 0.12);
+            min-height: 120px;
+        }}
+        .stat-label {{
+            font-size: 0.84rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: {theme["muted"]};
+        }}
+        .stat-value {{
+            font-size: 2rem;
+            font-weight: 700;
+            color: {theme["text"]};
+            margin-top: 0.2rem;
+        }}
+        .stat-note {{
+            font-size: 0.95rem;
+            color: {theme["muted"]};
+            margin-top: 0.3rem;
+        }}
+        .section-tag {{
+            display: inline-block;
+            padding: 0.35rem 0.7rem;
+            border-radius: 999px;
+            background: {theme["badge_bg"]};
+            color: {theme["badge_text"]};
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin-bottom: 0.6rem;
+        }}
+        .pill-group {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+            align-items: center;
+            margin: 0.6rem 0 1.2rem;
+        }}
+        .pill-label {{
+            font-size: 0.8rem;
+            color: {theme["muted"]};
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }}
+        .pill-badge {{
+            padding: 0.4rem 0.9rem;
+            border-radius: 999px;
+            background: rgba(43, 94, 59, 0.12);
+            color: {theme["accent"]};
+            font-weight: 600;
+            font-size: 0.85rem;
+        }}
+        .stress-gauge-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+        }}
+        .stress-gauge-card {{
+            padding: 1.1rem;
+            border-radius: 16px;
+            background: {theme["panel"]};
+            border: 1px solid {theme["panel_border"]};
+            box-shadow: 0 12px 24px rgba(19, 32, 28, 0.12);
+            text-align: center;
+        }}
+        .stress-gauge {{
+            --value: 0;
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            margin: 0 auto 0.8rem;
+            background: conic-gradient(#4C9A6F calc(var(--value) * 1%), {theme["grid"]} 0);
+            display: grid;
+            place-items: center;
+        }}
+        .stress-gauge::after {{
+            content: "";
+            width: 86px;
+            height: 86px;
+            border-radius: 50%;
+            background: {theme["panel"]};
+            border: 1px solid {theme["panel_border"]};
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.08);
+        }}
+        .stress-gauge-value {{
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: {theme["text"]};
+        }}
+        .stress-gauge-label {{
+            font-size: 0.85rem;
+            color: {theme["muted"]};
+        }}
+        .model-highlight {{
+            padding: 1.2rem;
+            border-radius: 16px;
+            border: 1px solid rgba(43, 94, 59, 0.2);
+            background: linear-gradient(135deg, rgba(43, 94, 59, 0.08), rgba(76, 154, 111, 0.12));
+            text-align: center;
+        }}
+                .side-panel {{
+                    padding: 1.2rem;
+                    border-radius: 16px;
+                    border: 1px solid {theme["panel_border"]};
+                    background: {theme["panel"]};
+                    box-shadow: 0 12px 24px rgba(19, 32, 28, 0.12);
+                }}
+                .badge-row {{
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 0.5rem;
+                    margin-top: 0.6rem;
+                }}
+                .badge-pill {{
+                    padding: 0.3rem 0.7rem;
+                    border-radius: 999px;
+                    background: rgba(26, 74, 74, 0.12);
+                    color: {theme["accent"]};
+                    font-weight: 600;
+                    font-size: 0.78rem;
+                    letter-spacing: 0.03em;
+                    text-transform: uppercase;
+                }}
+        .model-highlight h3 {{
+            margin-bottom: 0.4rem;
+        }}
+        .model-highlight .pill-badge {{
+            margin-top: 0.6rem;
+            display: inline-block;
+        }}
+        .timeline {{
+            display: grid;
+            gap: 1.1rem;
+            position: relative;
+            padding-left: 1.5rem;
+        }}
+        .timeline::before {{
+            content: "";
+            position: absolute;
+            left: 0.5rem;
+            top: 0.2rem;
+            bottom: 0.2rem;
+            width: 2px;
+            background: rgba(43, 94, 59, 0.2);
+        }}
+        .timeline-item {{
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 0.9rem;
+        }}
+        .timeline-marker {{
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(76, 154, 111, 0.2);
+            color: {theme["accent"]};
+            font-weight: 700;
+            display: grid;
+            place-items: center;
+            border: 1px solid rgba(43, 94, 59, 0.3);
+        }}
+        .timeline-title {{
+            font-weight: 600;
+            font-size: 1rem;
+            color: {theme["text"]};
+        }}
+        .timeline-desc {{
+            color: {theme["muted"]};
+            margin-top: 0.2rem;
+        }}
+        .nav-help {{
+            color: {theme["muted"]};
+            font-size: 0.92rem;
+        }}
+        div[data-testid="stMetricValue"] {{
+            color: {theme["text"]};
+        }}
+        div[data-testid="stSidebar"] {{
+            background: {theme["panel"]};
+        }}
+        div[data-testid="stMetricValue"] {{
+            font-weight: 700;
+        }}
+        .stButton > button {{
+            background: linear-gradient(135deg, #2B5E3B, #4C9A6F);
+            color: white;
+            border-radius: 12px;
+            border: none;
+            padding: 0.7rem 1.2rem;
+            font-weight: 600;
+            box-shadow: 0 12px 24px rgba(19, 32, 28, 0.18);
+        }}
+        .stButton > button:hover {{
+            filter: brightness(1.05);
+        }}
+        div[data-baseweb="select"] > div {{
+            border-radius: 999px;
+            border-color: {theme["panel_border"]};
+            background: {theme["panel"]};
+        }}
+        div[data-baseweb="select"] span {{
+            color: {theme["text"]};
+            font-weight: 600;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def show_card(title: str, value: str, note: str):
+    st.markdown(
+        f"""
+        <div class="stat-card">
+            <div class="stat-label">{title}</div>
+            <div class="stat-value">{value}</div>
+            <div class="stat-note">{note}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_top_nav() -> str:
+    """Render sidebar navigation."""
+    with st.sidebar:
+        st.markdown("## Navigation")
+        page = st.radio(
+            "Go to",
+            ["Home", "Dashboard", "Predictor", "Model Lab", "Analysis", "Project Info"],
+            label_visibility="collapsed",
+        )
+        selected_theme = st.toggle("Dark mode", value=get_theme_name() == "Dark", key="dark_mode_toggle")
+        st.session_state.theme_name = "Dark" if selected_theme else "Light"
+        st.markdown(
+            '<div class="nav-help">Navigate between overview, analytics, predictions, and project details.</div>',
+            unsafe_allow_html=True,
+        )
+    return page
+
+
+def compute_overview(df: pd.DataFrame, report: dict) -> dict:
+    total_records = len(df)
+    total_fields = int(df["field_id"].nunique()) if "field_id" in df.columns else 0
+    date_min = df["date"].min()
+    date_max = df["date"].max()
+    if pd.isna(date_min) or pd.isna(date_max):
+        date_range = "Date range unavailable"
+    else:
+        date_range = f"{date_min.date()} to {date_max.date()}"
+    stress_rates = {target: float(df[target].mean() * 100) for target in TARGET_COLUMNS}
+    return {
+        "total_records": total_records,
+        "total_fields": total_fields,
+        "date_range": date_range,
+        "best_model": report["best_model"]["label"],
+        "best_score": report["best_model"]["average_f1_score"],
+        "stress_rates": stress_rates,
+    }
+
+
+def get_chart_theme(theme_name: str) -> alt.ThemeConfig:
+    theme = THEMES[theme_name]
+    return {
+        "config": {
+            "view": {"stroke": None},
+            "background": "transparent",
+            "title": {"color": theme["chart_text"], "fontSize": 16},
+            "axis": {
+                "labelColor": theme["chart_text"],
+                "titleColor": theme["chart_text"],
+                "gridColor": theme["grid"],
+                "domainColor": theme["grid"],
+                "tickColor": theme["grid"],
+            },
+            "legend": {
+                "labelColor": theme["chart_text"],
+                "titleColor": theme["chart_text"],
+            },
+        }
+    }
+
+
+def themed_chart(chart: alt.Chart, theme_name: str):
+    st.altair_chart(chart.configure(**get_chart_theme(theme_name)["config"]), use_container_width=True)
+
+
+def slider_value(details: dict) -> tuple[float, float, float]:
+    minimum = float(round(details["min"], 2))
+    maximum = float(round(details["max"], 2))
+    if minimum == maximum:
+        maximum = minimum + 0.01
+    default = min(max(float(round(details["mean"], 2)), minimum), maximum)
+    return minimum, maximum, default
+
+
+def build_input_form(feature_ranges: dict, selected_features: list[str]) -> dict:
+    st.markdown('<div class="section-tag">Field Input</div>', unsafe_allow_html=True)
+    st.subheader("Enter Soil and Weather Parameters")
+    st.caption("Only the most important inputs from the dataset are used here.")
+
+    payload = {}
+    soil_features = [feature for feature in selected_features if feature in SOIL_PARAMETER_COLUMNS]
+    other_features = [feature for feature in selected_features if feature not in soil_features]
+
+    left, right = st.columns(2)
+
+    with left:
+        st.markdown("### Soil Parameters")
+        for feature in soil_features:
+            minimum, maximum, default = slider_value(feature_ranges[feature])
+            payload[feature] = st.slider(prettify(feature), min_value=minimum, max_value=maximum, value=default)
+
+    with right:
+        st.markdown("### Weather and Time Parameters")
+        for feature in other_features:
+            minimum, maximum, default = slider_value(feature_ranges[feature])
+            payload[feature] = st.slider(prettify(feature), min_value=minimum, max_value=maximum, value=default)
+
+    return payload
+
+
+def render_prediction_cards(predictions: dict):
+    columns = st.columns(len(predictions))
+    for column, (target, details) in zip(columns, predictions.items()):
+        border = RISK_COLORS[details["risk_level"]]
+        with column:
+            st.markdown(
+                f"""
+                <div class="glass-card" style="border-left: 6px solid {border};">
+                    <div class="stat-label">{prettify(target)}</div>
+                    <div class="stat-value">{details['probability'] * 100:.1f}%</div>
+                    <div class="stat-note">{details['risk_level']} risk</div>
+                    <div class="stat-note">{'Stress predicted' if details['prediction'] else 'No stress predicted'}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_recommendations(predictions: dict):
+    st.subheader("Suggested Actions")
+    advice = []
+
+    if predictions["temperature_stress"]["risk_level"] in {"High", "Moderate"}:
+        advice.append("Temperature stress risk is elevated. Consider mulching, shade nets, and revisiting irrigation timing.")
+    if predictions["water_stress"]["risk_level"] in {"High", "Moderate"}:
+        advice.append("Water stress risk is elevated. Check root-zone moisture and plan timely irrigation support.")
+    if predictions["waterlogging_stress"]["risk_level"] in {"High", "Moderate"}:
+        advice.append("Waterlogging risk is elevated. Improve drainage and reduce excess watering where possible.")
+    if not advice:
+        advice.append("Current conditions look stable with low stress risk across the selected stress types.")
+
+    for line in advice:
+        st.write(f"- {line}")
+
+
+def render_home_page(df: pd.DataFrame, report: dict, overview: dict):
+    plant_svg = load_svg_data_uri(ASSET_PLANT_SVG)
+    year_count = 6
+    coverage_range = "2020-01-01 to 2025-12-31"
+    primary_model_name = "bilstm"
+    primary_label = report["models"][primary_model_name]["label"]
+    st.markdown(
+        f"""
+        <div class="hero-panel">
+            <h1 style="margin: 0 0 0.5rem 0;">Crop Stress Prediction Platform</h1>
+            <p style="font-size: 1.08rem; max-width: 760px;">
+                Early detection of crop stress using machine learning. This platform combines traditional ML models 
+                with advanced neural networks (BiLSTM) to predict temperature stress, water stress, and waterlogging risk.
+            </p>
+            <img class="hero-plant" src="{plant_svg}" alt="Plant" />
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        show_card("Dataset Size", f"{overview['total_records']:,}", "Historical observations")
+    with col2:
+        show_card("Fields Monitored", str(overview["total_fields"]), "Distinct farm plots")
+    with col3:
+        show_card("Best Model", overview["best_model"], f"F1: {overview['best_score']:.3f}")
+    with col4:
+        show_card("Coverage", coverage_range, f"{year_count} years")
+
+    left, right = st.columns([1.1, 0.9])
+    with left:
+        st.markdown("### Platform Features")
+        st.write(
+            f"• **Primary Model** - {primary_label} (fast, interpretable, production-ready)\n"
+            "• **Multi-Model Comparison** - Naive Bayes, Linear Regression, and BiLSTM\n"
+            "• **Real-time Predictions** - Stress probabilities per field condition\n"
+            "• **Comprehensive Analytics** - Trends, metrics, and model performance"
+        )
+
+        st.markdown("### Model Highlight")
+        st.markdown(
+            f"""
+            <div class="model-highlight">
+                <h3>{overview["best_model"]}</h3>
+                <div class="stat-value" style="font-size: 1.6rem; margin-top: 0.2rem;">F1 {overview["best_score"]:.3f}</div>
+                <div class="stat-note">Balanced accuracy and latency for production use.</div>
+                <span class="pill-badge">Recommended</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        st.markdown("### Current Stress Levels")
+        gauge_cards = "".join(
+            f"<div class=\"stress-gauge-card\">"
+            f"<div class=\"stress-gauge\" style=\"--value: {rate:.1f};\"></div>"
+            f"<div class=\"stress-gauge-value\">{rate:.1f}%</div>"
+            f"<div class=\"stress-gauge-label\">{prettify(target)}</div>"
+            f"</div>"
+            for target, rate in overview["stress_rates"].items()
+        )
+        st.markdown(f"<div class=\"stress-gauge-grid\">{gauge_cards}</div>", unsafe_allow_html=True)
+
+
+def render_dashboard_page(df: pd.DataFrame, report: dict, theme_name: str):
+    st.markdown('<div class="section-tag">Analytics Dashboard</div>', unsafe_allow_html=True)
+    st.title("Field Analytics & Model Performance")
+
+    if "field_id" in df.columns:
+        field_options = ["All Fields"] + sorted(df["field_id"].dropna().unique().tolist())
+        st.markdown(
+            """
+            <div class="pill-group">
+                <span class="pill-label">Field</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        selected_field = st.selectbox("Filter by field", field_options, label_visibility="collapsed")
+        filtered_df = df if selected_field == "All Fields" else df[df["field_id"] == selected_field]
+    else:
+        filtered_df = df
+
+    col1, col2 = st.columns([1.3, 1])
+
+    with col1:
+        st.markdown("### Model Performance by Stress Type")
+        metric_rows = []
+        for model_name, details in report["models"].items():
+            for target, target_metrics in details["targets"].items():
+                metric_rows.append(
+                    {
+                        "Model": details["label"],
+                        "Stress Type": prettify(target),
+                        "F1-Score": target_metrics["f1_score"],
+                    }
+                )
+        stacked_frame = pd.DataFrame(metric_rows)
+        stacked_chart = (
+            alt.Chart(stacked_frame)
+            .mark_bar(cornerRadius=6)
+            .encode(
+                x=alt.X("F1-Score:Q", stack="normalize", scale=alt.Scale(domain=[0, 1])),
+                y=alt.Y("Stress Type:N", sort="-x"),
+                color=alt.Color("Model:N"),
+                tooltip=[
+                    alt.Tooltip("Model:N"),
+                    alt.Tooltip("Stress Type:N"),
+                    alt.Tooltip("F1-Score:Q", format=".3f"),
+                ],
+            )
+            .properties(height=300)
+        )
+        themed_chart(stacked_chart, theme_name)
+        st.caption("Normalized stacked view of F1 contributions by model")
+
+    with col2:
+        st.markdown("### Stress Distribution")
+        stress_frame = pd.DataFrame(
+            {
+                "Stress Type": [prettify(target) for target in TARGET_COLUMNS],
+                "Rate": [filtered_df[target].mean() * 100 for target in TARGET_COLUMNS],
+            }
+        )
+        donut_chart = (
+            alt.Chart(stress_frame)
+            .mark_arc(innerRadius=70, outerRadius=120, cornerRadius=8)
+            .encode(
+                theta=alt.Theta("Rate:Q"),
+                color=alt.Color("Stress Type:N"),
+                tooltip=[alt.Tooltip("Stress Type:N"), alt.Tooltip("Rate:Q", format=".2f")],
+            )
+            .properties(height=300)
+        )
+        themed_chart(donut_chart, theme_name)
+
+    # Metrics comparison table
+    st.markdown("### Target Metrics Snapshot")
+    metric_rows = []
+    for model_name, details in report["models"].items():
+        for target, target_metrics in details["targets"].items():
+            metric_rows.append(
+                {
+                    "Model": details["label"],
+                    "Stress Type": prettify(target),
+                    "Accuracy": target_metrics["accuracy"],
+                    "Precision": target_metrics["precision"],
+                    "Recall": target_metrics["recall"],
+                    "F1-Score": target_metrics["f1_score"],
+                }
+            )
+    metric_frame = pd.DataFrame(metric_rows)
+    st.dataframe(metric_frame, use_container_width=True, hide_index=True)
+
+    # Soil parameters
+    st.markdown("### Soil Health Summary")
+    soil_cols = [col for col in SOIL_PARAMETER_COLUMNS if col in filtered_df.columns]
+    if soil_cols:
+        soil_summary = filtered_df[soil_cols].agg(["mean", "min", "max"]).T.round(2)
+        st.dataframe(soil_summary, use_container_width=True)
+
+
+def render_predictor_page(df: pd.DataFrame, report: dict):
+    """Render prediction page with enhanced model selection."""
+    st.markdown('<div class="section-tag">Prediction Center</div>', unsafe_allow_html=True)
+    st.title("Live Crop Stress Predictor")
+    st.write("Enter soil and weather conditions to estimate crop stress probabilities.")
+
+    selected_features = report["selected_features"]
+    feature_ranges = get_feature_ranges(df, selected_features)
+
+    # Enhanced model selection with information
+    col1, col2 = st.columns([1.2, 0.9])
+
+    with col1:
+        st.markdown("### Select Prediction Model")
+        model_options = list(MODEL_LABELS.keys())
+        default_index = model_options.index("bilstm") if "bilstm" in model_options else 0
+        model_name = st.radio(
+            "Choose model",
+            options=model_options,
+            format_func=lambda key: f"{MODEL_LABELS[key]}",
+            horizontal=True,
+            index=default_index,
+            label_visibility="collapsed",
+        )
+
+    with col2:
+        st.markdown("### Model Snapshot")
+        model_info = report["models"][model_name]
+        st.metric("F1-Score", f"{model_info['average_f1_score']:.4f}")
+        st.metric("Accuracy", f"{model_info['average_accuracy']:.4f}")
+        if model_name == report["best_model"]["name"]:
+            st.markdown("<span class=\"pill-badge\">Best Model</span>", unsafe_allow_html=True)
+
+    side_col, _ = st.columns([0.9, 1.5])
+    with side_col:
+        st.markdown("### Performance Panel")
+        st.markdown(
+            f"""
+            <div class="side-panel">
+                <div class="stat-label">Active model</div>
+                <div class="stat-value" style="font-size: 1.5rem;">{report["models"][model_name]["label"]}</div>
+                <div class="stat-note">Balanced accuracy and latency for live inference.</div>
+                <div class="badge-row">
+                    <span class="badge-pill">F1 {model_info['average_f1_score']:.3f}</span>
+                    <span class="badge-pill">Acc {model_info['average_accuracy']:.3f}</span>
+                    <span class="badge-pill">Latency 50ms</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Model comparison section
+    with st.expander("Compare All Models", expanded=False):
+        comparison_df = pd.DataFrame([
+            {
+                "Model": report["models"][m]["label"],
+                "F1-Score": report["models"][m]["average_f1_score"],
+                "Accuracy": report["models"][m]["average_accuracy"],
+                "Type": report["models"][m].get("type", "traditional").upper(),
+            }
+            for m in report["models"].keys()
+        ])
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+        
+        # Model characteristics
+        st.markdown("#### Model Characteristics")
+        char_data = []
+        for m in sorted(report["models"].keys()):
+            if m in MODEL_CHARACTERISTICS:
+                char = MODEL_CHARACTERISTICS[m]
+                char_data.append({
+                    "Model": report["models"][m]["label"],
+                    "Speed": char["speed"],
+                    "Accuracy": char["accuracy"],
+                    "Interpretability": char["interpretability"],
+                })
+        if char_data:
+            st.dataframe(pd.DataFrame(char_data), use_container_width=True, hide_index=True)
+
+    st.markdown("### Active Soil Inputs")
+    st.caption(", ".join(prettify(f) for f in report["soil_parameters"]))
+
+    payload = build_input_form(feature_ranges, selected_features)
+    if st.button("Predict Stress", use_container_width=True):
+        with st.spinner("Analyzing field conditions..."):
+            predictions = predict_stress(model_name, payload)
+        st.markdown("### Prediction Results")
+        render_prediction_cards(predictions)
+        render_recommendations(predictions)
+
+
+def render_model_lab_page(report: dict):
+    """Render model lab page with enhanced analysis."""
+    st.markdown('<div class="section-tag">Model Laboratory</div>', unsafe_allow_html=True)
+    st.title("Model Comparison & Management")
+
+    # Quick stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        best_f1 = report["best_model"]["average_f1_score"]
+        st.metric("Best F1-Score", f"{best_f1:.4f}")
+    with col2:
+        best_acc = report["best_model"]["average_accuracy"]
+        st.metric("Best Accuracy", f"{best_acc:.4f}")
+    with col3:
+        model_count = len(report["models"])
+        st.metric("Models Trained", str(model_count))
+    with col4:
+        feature_count = len(report["selected_features"])
+        st.metric("Features Used", str(feature_count))
+
+    # Detailed comparison
+    st.markdown("### Comprehensive Model Comparison")
+    col1, col2 = st.columns([1.5, 1])
+
+    primary_model_name = "bilstm"
+    primary_details = report["models"][primary_model_name]
+    
+    with col1:
+        comparison_df = pd.DataFrame([
+            {
+                "Model": details["label"],
+                "Type": details.get("type", "traditional").upper(),
+                "Avg F1": details["average_f1_score"],
+                "Accuracy": details.get("average_accuracy", 0),
+                "Status": "PRIMARY" if name == primary_model_name else ("BEST" if name == report["best_model"]["name"] else ""),
+            }
+            for name, details in report["models"].items()
+        ])
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+    with col2:
+        st.markdown("### Primary Model")
+        st.metric(
+            "Recommended",
+            primary_details["label"],
+            f"F1: {primary_details['average_f1_score']:.2f}",
+        )
+        st.caption("Best for production use")
+        st.caption("50ms predictions")
+        st.caption("Great interpretability")
+
+    # Model characteristics and use cases
+    st.markdown("### Model Recommendations")
+    char_data = []
+    model_order = [primary_model_name] + [name for name in report["models"].keys() if name != primary_model_name]
+    for model_name in model_order:
+        if model_name in report["models"] and model_name in MODEL_CHARACTERISTICS:
+            details = report["models"][model_name]
+            char = MODEL_CHARACTERISTICS[model_name]
+            char_data.append({
+                "Model": (f"{details['label']}" if model_name == primary_model_name else details["label"]),
+                "Best For": char["use_case"],
+                "Speed": char["speed"],
+                "Interpretability": char["interpretability"],
+                "F1-Score": f"{details['average_f1_score']:.4f}",
+            })
+    
+    if char_data:
+        char_df = pd.DataFrame(char_data)
+        st.dataframe(char_df, use_container_width=True, hide_index=True)
+
+    # Retraining button
+    st.markdown("### Model Management")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("Retrain All Models", use_container_width=True, key="retrain_btn"):
+            with st.spinner("Training models on full dataset..."):
+                train_and_save_models()
+                st.cache_data.clear()
+            st.success("Models retrained successfully!")
+            st.rerun()
+    
+    with col2:
+        st.info("Tip: Retrain models after adding new data for better accuracy")
+
+    # Selected features
+    st.markdown("### Selected Features")
+    st.caption(f"Total: {len(report['selected_features'])} features")
+    features_col1, features_col2 = st.columns(2)
+    
+    soil_feats = [f for f in report["selected_features"] if f in SOIL_PARAMETER_COLUMNS]
+    weather_feats = [f for f in report["selected_features"] if f not in soil_feats]
+    
+    with features_col1:
+        st.write("**Soil Parameters:**")
+        st.write(", ".join(prettify(f) for f in soil_feats) if soil_feats else "None")
+    
+    with features_col2:
+        st.write("**Weather & Time:**")
+        st.write(", ".join(prettify(f) for f in weather_feats) if weather_feats else "None")
+
+
+def render_analysis_page(report: dict, df: pd.DataFrame):
+    """Render detailed analysis page."""
+    st.markdown('<div class="section-tag">Detailed Analysis</div>', unsafe_allow_html=True)
+    st.title("Comprehensive Model Analysis")
+
+    analysis_type = st.selectbox(
+        "Select Analysis Type",
+        ["Model Comparison", "Target Metrics", "Feature Analysis", "Training Summary"],
+    )
+
+    if analysis_type == "Model Comparison":
+        try:
+            fig = plot_model_comparison(report, "average_f1_score")
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"Could not render visualization: {str(e)}")
+        
+    elif analysis_type == "Target Metrics":
+        model_name = st.selectbox(
+            "Select Model",
+            options=list(report["models"].keys()),
+            format_func=lambda key: report["models"][key]["label"],
+        )
+        try:
+            fig = plot_target_metrics(report, model_name)
+            st.pyplot(fig)
+        except Exception as e:
+            st.warning(f"Could not render visualization: {str(e)}")
+
+    elif analysis_type == "Feature Analysis":
+        st.markdown("### Selected Features for Prediction")
+        features_df = pd.DataFrame({
+            "Feature": [prettify(f) for f in report["selected_features"]],
+            "Type": ["Soil" if f in SOIL_PARAMETER_COLUMNS else "Weather" 
+                    for f in report["selected_features"]]
+        })
+        st.dataframe(features_df, use_container_width=True, hide_index=True)
+
+    else:  # Training Summary
+        summary = create_summary_report(report)
+        st.code(summary, language="text")
+
+
+def render_scope_page(report: dict):
+    """Render project info page."""
+    st.markdown('<div class="section-tag">Project Information</div>', unsafe_allow_html=True)
+    st.title("Project Overview & Workflow")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### Project Objectives")
+        st.write(
+            "• Predict crop stress early using machine learning\n"
+            "• Compare multiple model architectures\n"
+            "• Support proactive farm management decisions\n"
+            "• Integrate traditional ML with neural networks"
+        )
+    with col2:
+        st.markdown("### Models Implemented")
+        for model_name, details in report["models"].items():
+            model_type = details.get("type", "traditional").upper()
+            st.write(f"**{details['label']}** ({model_type})")
+
+    st.markdown("### 🔄 ML Training Pipeline")
+    st.markdown(
+        """
+        <div class="timeline">
+            <div class="timeline-item">
+                <div class="timeline-marker">1</div>
+                <div>
+                    <div class="timeline-title">Data Loading</div>
+                    <div class="timeline-desc">Load crop stress dataset with weather and soil features</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">2</div>
+                <div>
+                    <div class="timeline-title">Preprocessing</div>
+                    <div class="timeline-desc">Engineer calendar features (month, day of year, week)</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">3</div>
+                <div>
+                    <div class="timeline-title">Feature Selection</div>
+                    <div class="timeline-desc">Rank features by importance, select top K features</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">4</div>
+                <div>
+                    <div class="timeline-title">Model Training</div>
+                    <div class="timeline-desc">Train all models independently for each stress type</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">5</div>
+                <div>
+                    <div class="timeline-title">Evaluation</div>
+                    <div class="timeline-desc">Calculate comprehensive metrics (F1, Accuracy, AUC)</div>
+                </div>
+            </div>
+            <div class="timeline-item">
+                <div class="timeline-marker">6</div>
+                <div>
+                    <div class="timeline-title">Prediction</div>
+                    <div class="timeline-desc">Use best model for live field predictions</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### 📋 Training Configuration")
+    config_df = pd.DataFrame({
+        "Parameter": ["Test Size", "Features Used", "Soil Parameters", 
+                     "BiLSTM Sequence Length", "Target Variables"],
+        "Value": [
+            f"{report.get('training_config', {}).get('test_size', 0.2) * 100:.0f}%",
+            str(report.get('feature_count', len(report['selected_features']))),
+            str(len(report['soil_parameters'])),
+            "30 days",
+            str(len(TARGET_COLUMNS))
+        ]
+    })
+    st.dataframe(config_df, use_container_width=True, hide_index=True)
+
+
+def main():
+    page = render_top_nav()
+    theme_name = get_theme_name()
+    inject_styles(theme_name)
+
+    df = get_dataset()
+    report = get_report()
+    overview = compute_overview(df, report)
+
+    if page == "Home":
+        render_home_page(df, report, overview)
+    elif page == "Dashboard":
+        render_dashboard_page(df, report, theme_name)
+    elif page == "Predictor":
+        render_predictor_page(df, report)
+    elif page == "Model Lab":
+        render_model_lab_page(report)
+    elif page == "Analysis":
+        render_analysis_page(report, df)
+    else:
+        render_scope_page(report)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,232 @@
+{
+  "selected_features": [
+    "soil_pH",
+    "soil_moisture_10cm",
+    "air_temperature_max",
+    "air_temperature_min",
+    "soil_temperature",
+    "soil_moisture_30cm",
+    "air_temperature_max_lag3_mean",
+    "day_of_year",
+    "air_temperature_max_lag7_mean",
+    "solar_radiation"
+  ],
+  "feature_count": 10,
+  "soil_parameters": [
+    "soil_moisture_10cm",
+    "soil_moisture_30cm",
+    "soil_temperature",
+    "soil_pH"
+  ],
+  "training_samples": 10228,
+  "testing_samples": 2557,
+  "models": {
+    "naive_bayes": {
+      "label": "Naive Bayes",
+      "type": "traditional",
+      "average_f1_score": 0.3006,
+      "average_accuracy": 0.9324,
+      "targets": {
+        "temperature_stress": {
+          "accuracy": 0.8569,
+          "precision": 0.6602,
+          "recall": 0.9499,
+          "f1_score": 0.779,
+          "auc": 0.9557,
+          "true_positives": 645,
+          "true_negatives": 1546,
+          "false_positives": 332,
+          "false_negatives": 34,
+          "specificity": 0.8232,
+          "mse": 0.1284,
+          "rmse": 0.3583
+        },
+        "water_stress": {
+          "accuracy": 0.9609,
+          "precision": 0.1458,
+          "recall": 0.1061,
+          "f1_score": 0.1228,
+          "auc": 0.5576,
+          "true_positives": 7,
+          "true_negatives": 2450,
+          "false_positives": 41,
+          "false_negatives": 59,
+          "specificity": 0.9835,
+          "mse": 0.0359,
+          "rmse": 0.1896
+        },
+        "waterlogging_stress": {
+          "accuracy": 0.9793,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1_score": 0.0,
+          "auc": 0.5185,
+          "true_positives": 0,
+          "true_negatives": 2504,
+          "false_positives": 0,
+          "false_negatives": 53,
+          "specificity": 1.0,
+          "mse": 0.0207,
+          "rmse": 0.144
+        }
+      }
+    },
+    "random_forest": {
+      "label": "Random Forest \u2b50 PRIMARY",
+      "type": "traditional",
+      "average_f1_score": 0.3732,
+      "average_accuracy": 0.9769,
+      "targets": {
+        "temperature_stress": {
+          "accuracy": 0.9812,
+          "precision": 0.9788,
+          "recall": 0.9499,
+          "f1_score": 0.9641,
+          "auc": 0.9712,
+          "true_positives": 645,
+          "true_negatives": 1864,
+          "false_positives": 14,
+          "false_negatives": 34,
+          "specificity": 0.9925,
+          "mse": 0.0212,
+          "rmse": 0.1456
+        },
+        "water_stress": {
+          "accuracy": 0.9703,
+          "precision": 0.2917,
+          "recall": 0.1061,
+          "f1_score": 0.1556,
+          "auc": 0.5243,
+          "true_positives": 7,
+          "true_negatives": 2474,
+          "false_positives": 17,
+          "false_negatives": 59,
+          "specificity": 0.9932,
+          "mse": 0.0396,
+          "rmse": 0.1989
+        },
+        "waterlogging_stress": {
+          "accuracy": 0.9793,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1_score": 0.0,
+          "auc": 0.5824,
+          "true_positives": 0,
+          "true_negatives": 2504,
+          "false_positives": 0,
+          "false_negatives": 53,
+          "specificity": 1.0,
+          "mse": 0.0246,
+          "rmse": 0.1569
+        }
+      }
+    },
+    "linear_regression": {
+      "label": "Linear Regression",
+      "type": "traditional",
+      "average_f1_score": 0.2719,
+      "average_accuracy": 0.955,
+      "targets": {
+        "temperature_stress": {
+          "accuracy": 0.9116,
+          "precision": 0.9141,
+          "recall": 0.7364,
+          "f1_score": 0.8157,
+          "auc": 0.949,
+          "true_positives": 500,
+          "true_negatives": 1831,
+          "false_positives": 47,
+          "false_negatives": 179,
+          "specificity": 0.975,
+          "mse": 0.0851,
+          "rmse": 0.2917
+        },
+        "water_stress": {
+          "accuracy": 0.9742,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1_score": 0.0,
+          "auc": 0.514,
+          "true_positives": 0,
+          "true_negatives": 2491,
+          "false_positives": 0,
+          "false_negatives": 66,
+          "specificity": 1.0,
+          "mse": 0.0291,
+          "rmse": 0.1707
+        },
+        "waterlogging_stress": {
+          "accuracy": 0.9793,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1_score": 0.0,
+          "auc": 0.5172,
+          "true_positives": 0,
+          "true_negatives": 2504,
+          "false_positives": 0,
+          "false_negatives": 53,
+          "specificity": 1.0,
+          "mse": 0.0235,
+          "rmse": 0.1533
+        }
+      }
+    },
+    "bilstm": {
+      "label": "Bidirectional LSTM",
+      "type": "neural_network",
+      "average_f1_score": 0.7291,
+      "average_accuracy": 0.9735,
+      "targets": {
+        "temperature_stress": {
+          "accuracy": 0.9756,
+          "precision": 0.9562,
+          "recall": 0.9461,
+          "f1_score": 0.9506,
+          "auc": 0.9865,
+          "true_positives": 643,
+          "true_negatives": 1847,
+          "false_positives": 31,
+          "false_negatives": 36,
+          "specificity": 0.9834
+        },
+        "water_stress": {
+          "accuracy": 0.9836,
+          "precision": 0.3571,
+          "recall": 0.1515,
+          "f1_score": 0.2051,
+          "auc": 0.5758,
+          "true_positives": 10,
+          "true_negatives": 2486,
+          "false_positives": 18,
+          "false_negatives": 56,
+          "specificity": 0.9928
+        },
+        "waterlogging_stress": {
+          "accuracy": 0.9614,
+          "precision": 0.8077,
+          "recall": 0.9057,
+          "f1_score": 0.9318,
+          "auc": 0.9594,
+          "true_positives": 48,
+          "true_negatives": 2416,
+          "false_positives": 12,
+          "false_negatives": 5,
+          "specificity": 0.9951
+        }
+      }
+    }
+  },
+  "training_config": {
+    "test_size": 0.2,
+    "cv_splits": 5,
+    "random_state": 42
+  },
+  "best_model": {
+    "name": "bilstm",
+    "label": "Bidirectional LSTM",
+    "type": "neural_network",
+    "average_f1_score": 0.7291,
+    "average_accuracy": 0.9735,
+    "note": "Best performing model across all stress types"
+  }
+}

@@ -1,0 +1,82 @@
+{% extends "base.html" %} {% block title %}Home - Crop Stress Prediction{%
+endblock %} {% block content %}
+<div class="page-header">
+  <div class="hero-panel">
+    <div class="section-tag">Agricultural Intelligence</div>
+    <h1 class="hero-title">🌾 Crop Stress Prediction Platform</h1>
+    <p class="hero-subtitle">
+      Early detection of crop stress using machine learning. This platform
+      combines traditional ML models with advanced neural networks (BiLSTM) to
+      predict temperature stress, water stress, and waterlogging risk.
+    </p>
+  </div>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Dataset Size</div>
+    <div class="stat-value">{{ "{:,}".format(total_records) }}</div>
+    <div class="stat-note">Historical observations</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Fields Monitored</div>
+    <div class="stat-value">{{ total_fields }}</div>
+    <div class="stat-note">Distinct farm plots</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Best Model</div>
+    <div class="stat-value">{{ best_model }}</div>
+    <div class="stat-note">F1: {{ best_score }}</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-label">Coverage</div>
+    <div class="stat-value">{{ date_range }}</div>
+    <div class="stat-note">Time range</div>
+  </div>
+</div>
+
+<div class="content-grid">
+  <div class="glass-card">
+    <h2>📋 Platform Features</h2>
+    <ul class="feature-list">
+      <li>
+        ✅ <strong>Multi-Model Comparison</strong> - Naive Bayes, Random Forest,
+        Linear Regression, and BiLSTM neural networks
+      </li>
+      <li>
+        ✅ <strong>Real-time Predictions</strong> - Get stress probability
+        estimates for your field conditions
+      </li>
+      <li>
+        ✅ <strong>Comprehensive Analytics</strong> - Visualize trends, metrics,
+        and model performance
+      </li>
+      <li>
+        ✅ <strong>Feature Selection</strong> - Automatically selects most
+        important features for prediction
+      </li>
+    </ul>
+  </div>
+
+  <div class="glass-card">
+    <h2>📊 Current Stress Levels</h2>
+    <div class="stress-meter-group">
+      {% for target, rate in stress_rates.items() %}
+      <div class="stress-meter">
+        <div class="stress-label">{{ prettify(target) }}</div>
+        <div class="progress-bar">
+          <div
+            class="progress-fill"
+            style="width: {{ 100 if rate > 100 else rate }}%"
+          ></div>
+        </div>
+        <div class="stress-percent">{{ "%.1f"|format(rate) }}%</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

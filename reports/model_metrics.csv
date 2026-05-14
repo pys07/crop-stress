@@ -1,0 +1,10 @@
+Model,Target,Accuracy,Precision,Recall,F1-Score,AUC,Specificity
+Naive Bayes,temperature_stress,0.8569,0.6602,0.9499,0.779,0.9557,0.8232
+Naive Bayes,water_stress,0.9609,0.1458,0.1061,0.1228,0.5576,0.9835
+Naive Bayes,waterlogging_stress,0.9793,0.0,0.0,0.0,0.5185,1.0
+Random Forest ⭐ PRIMARY,temperature_stress,0.9812,0.9788,0.9499,0.9641,0.9712,0.9925
+Random Forest ⭐ PRIMARY,water_stress,0.9703,0.2917,0.1061,0.1556,0.5243,0.9932
+Random Forest ⭐ PRIMARY,waterlogging_stress,0.9793,0.0,0.0,0.0,0.5824,1.0
+Linear Regression,temperature_stress,0.9116,0.9141,0.7364,0.8157,0.949,0.975
+Linear Regression,water_stress,0.9742,0.0,0.0,0.0,0.514,1.0
+Linear Regression,waterlogging_stress,0.9793,0.0,0.0,0.0,0.5172,1.0

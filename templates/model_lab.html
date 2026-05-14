@@ -1,0 +1,68 @@
+{% extends "base.html" %} {% block title %}Model Lab - Crop Stress Prediction{%
+endblock %} {% block content %}
+<div class="page-header">
+  <div class="section-tag">Model Laboratory</div>
+  <h1>🧪 Model Comparison & Management</h1>
+</div>
+
+<div class="content-grid">
+  <div class="glass-card">
+    <h2>📊 Model Performance Summary</h2>
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>Type</th>
+            <th>Avg F1</th>
+            <th>Accuracy</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for model in models %}
+          <tr>
+            <td><strong>{{ model.name }}</strong></td>
+            <td><span class="badge">{{ model.type }}</span></td>
+            <td>{{ model.f1 }}</td>
+            <td>{{ model.accuracy }}</td>
+            <td>
+              {% if model.name == best_model %}
+              <span class="badge primary">Best</span>
+              {% else %}
+              <span class="badge">Active</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="glass-card">
+    <h2>🏆 Best Model</h2>
+    <div class="best-model-card">
+      <div class="best-model-name">{{ best_model }}</div>
+      <div class="best-model-score">F1: {{ best_score }}</div>
+      <p class="best-model-desc">Currently selected for predictions</p>
+    </div>
+  </div>
+</div>
+
+<div class="glass-card full-width">
+  <h2>🎯 Selected Features</h2>
+  <p class="feature-count">
+    Total: <strong>{{ selected_features | length }} features</strong>
+  </p>
+  <div class="features-list">
+    {% for feature in selected_features %}
+    <span class="feature-tag">{{ feature | replace('_', ' ') | title }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  // No additional scripts needed
+</script>
+{% endblock %}
