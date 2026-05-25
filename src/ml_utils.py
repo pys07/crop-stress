@@ -494,10 +494,16 @@ def predict_stress(model_name: str, input_payload: dict) -> dict:
         Predictions for all stress types
     """
     artifact = load_model_artifact(model_name)
-    features = artifact["features"]
-    model_type = artifact.get("model_type", "traditional")
+    features = artifact.get("features")
+    if not features:
+        report = load_report()
+        features = report.get("selected_features") or BASE_FEATURE_COLUMNS
+    targets = artifact.get("targets") or TARGET_COLUMNS
+    model_type = (artifact.get("model_type") or artifact.get("type", "traditional")).lower()
+    if model_type in {"bilstm", "sequence"}:
+        model_type = "neural"
 
-    frame = pd.DataFrame([{feature: input_payload.get(feature) for feature in features}])
+    frame = pd.DataFrame([{feature: input_payload.get(feature) for feature in features}]).fillna(0)
 
     predictions = {}
 
@@ -506,7 +512,7 @@ def predict_stress(model_name: str, input_payload: dict) -> dict:
         bilstm_model = artifact["model"]
         X_input = frame[features].values
 
-        for target in artifact["targets"]:
+        for target in targets:
             try:
                 probability = float(bilstm_model.predict(X_input, target_name=target)[0])
                 probability = np.clip(probability, 0.0, 1.0)
@@ -521,7 +527,10 @@ def predict_stress(model_name: str, input_payload: dict) -> dict:
             }
     else:
         # Traditional ML predictions
-        for target, pipeline in artifact["estimators"].items():
+        estimators = artifact.get("estimators")
+        if estimators is None:
+            raise KeyError("estimators")
+        for target, pipeline in estimators.items():
             probability = float(_get_probabilities(model_name, pipeline, frame)[0])
             predictions[target] = {
                 "probability": round(probability, 4),
