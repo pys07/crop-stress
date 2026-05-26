@@ -48,7 +48,7 @@ SOIL_PARAMETER_COLUMNS = [
 # ==============================================================================
 MODEL_LABELS = {
     "naive_bayes": "Naive Bayes",
-    "random_forest": "Random Forest ⭐ PRIMARY",
+    "random_forest": "Random Forest",
     "linear_regression": "Linear Regression",
     "bilstm": "Bidirectional LSTM",
 }
@@ -120,7 +120,7 @@ MODEL_CHARACTERISTICS = {
         "speed": "Fast",
         "accuracy": "Very High",
         "interpretability": "Medium",
-        "use_case": "✅ PRIMARY - Best overall, production ready",
+        "use_case": "Best overall, production ready",
     },
     "bilstm": {
         "speed": "Slow",

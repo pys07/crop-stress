@@ -18,6 +18,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     f1_score,
     mean_squared_error,
     precision_score,
@@ -248,6 +249,10 @@ def calculate_extended_metrics(y_true: np.ndarray, y_pred: np.ndarray, probabili
     """
     metrics = {
         "accuracy": round(float(accuracy_score(y_true, y_pred)), 4),
+        "balanced_accuracy": round(
+            float(balanced_accuracy_score(y_true, y_pred)) if len(np.unique(y_true)) > 1 else 0.0,
+            4,
+        ),
         "precision": round(float(precision_score(y_true, y_pred, zero_division=0)), 4),
         "recall": round(float(recall_score(y_true, y_pred, zero_division=0)), 4),
         "f1_score": round(float(f1_score(y_true, y_pred, zero_division=0)), 4),
@@ -347,17 +352,21 @@ def train_and_save_models() -> dict:
             artifact["estimators"][target] = pipeline
 
             print(f"  • {target}: F1={model_metrics[target]['f1_score']:.4f}, "
-                  f"Accuracy={model_metrics[target]['accuracy']:.4f}")
+                f"BalAcc={model_metrics[target]['balanced_accuracy']:.4f}")
 
         # Compute average metrics
         average_f1 = np.mean([metrics["f1_score"] for metrics in model_metrics.values()])
         average_accuracy = np.mean([metrics["accuracy"] for metrics in model_metrics.values()])
+        average_balanced_accuracy = np.mean(
+            [metrics["balanced_accuracy"] for metrics in model_metrics.values()]
+        )
 
         report["models"][model_name] = {
             "label": MODEL_LABELS[model_name],
             "type": "traditional",
             "average_f1_score": round(float(average_f1), 4),
             "average_accuracy": round(float(average_accuracy), 4),
+            "average_balanced_accuracy": round(float(average_balanced_accuracy), 4),
             "targets": model_metrics,
         }
 
@@ -412,16 +421,21 @@ def train_and_save_models() -> dict:
                 bilstm_metrics[target] = eval_metrics
 
                 print(f"  • {target}: F1={eval_metrics['f1_score']:.4f}, "
-                      f"Accuracy={eval_metrics['accuracy']:.4f}, AUC={eval_metrics['auc']:.4f}")
+                        f"BalAcc={eval_metrics.get('balanced_accuracy', eval_metrics['accuracy']):.4f}, "
+                        f"AUC={eval_metrics['auc']:.4f}")
 
             average_f1 = np.mean([metrics["f1_score"] for metrics in bilstm_metrics.values()])
             average_accuracy = np.mean([metrics["accuracy"] for metrics in bilstm_metrics.values()])
+            average_balanced_accuracy = np.mean(
+                [metrics.get("balanced_accuracy", metrics["accuracy"]) for metrics in bilstm_metrics.values()]
+            )
 
             report["models"]["bilstm"] = {
                 "label": MODEL_LABELS["bilstm"],
                 "type": "neural",
                 "average_f1_score": round(float(average_f1), 4),
                 "average_accuracy": round(float(average_accuracy), 4),
+                "average_balanced_accuracy": round(float(average_balanced_accuracy), 4),
                 "targets": bilstm_metrics,
             }
 
@@ -451,12 +465,15 @@ def train_and_save_models() -> dict:
         "type": best_model_info["type"],
         "average_f1_score": best_model_info["average_f1_score"],
         "average_accuracy": best_model_info["average_accuracy"],
-        "note": "PRIMARY MODEL - Recommended for production use" if best_model_name == "random_forest" else "",
+        "average_balanced_accuracy": best_model_info.get(
+            "average_balanced_accuracy", best_model_info["average_accuracy"]
+        ),
+        "note": "Recommended for production use" if best_model_name == "random_forest" else "",
     }
 
     print(f"\n🏆 BEST MODEL: {report['best_model']['label']}")
     print(f"   Average F1-Score: {report['best_model']['average_f1_score']:.4f}")
-    print(f"   Average Accuracy: {report['best_model']['average_accuracy']:.4f}")
+    print(f"   Average Balanced Accuracy: {report['best_model']['average_balanced_accuracy']:.4f}")
     print("="*70 + "\n")
 
     # Save report
@@ -466,12 +483,46 @@ def train_and_save_models() -> dict:
     return report
 
 
+def _balanced_accuracy_from_confusion(metrics: dict) -> float:
+    tp = metrics.get("true_positives")
+    tn = metrics.get("true_negatives")
+    fp = metrics.get("false_positives")
+    fn = metrics.get("false_negatives")
+    if tp is None or tn is None or fp is None or fn is None:
+        return metrics.get("balanced_accuracy", metrics.get("accuracy", 0.0))
+    tpr = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    tnr = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+    return round(float((tpr + tnr) / 2), 4)
+
+
+def _backfill_balanced_accuracy(report: dict) -> dict:
+    for model_info in report.get("models", {}).values():
+        targets = model_info.get("targets", {})
+        for metrics in targets.values():
+            if "balanced_accuracy" not in metrics:
+                metrics["balanced_accuracy"] = _balanced_accuracy_from_confusion(metrics)
+        if "average_balanced_accuracy" not in model_info and targets:
+            model_info["average_balanced_accuracy"] = round(
+                float(np.mean([m.get("balanced_accuracy", m.get("accuracy", 0.0)) for m in targets.values()])),
+                4,
+            )
+    if "best_model" in report:
+        best = report["best_model"]
+        if "average_balanced_accuracy" not in best:
+            model_info = report.get("models", {}).get(best.get("name", ""), {})
+            best["average_balanced_accuracy"] = model_info.get(
+                "average_balanced_accuracy", best.get("average_accuracy", 0.0)
+            )
+    return report
+
+
 def load_report() -> dict:
     """Load training report, train models if report doesn't exist."""
     report_path = REPORTS_DIR / "training_report.json"
     if not report_path.exists():
         return train_and_save_models()
-    return json.loads(report_path.read_text(encoding="utf-8"))
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    return _backfill_balanced_accuracy(report)
 
 
 def load_model_artifact(model_name: str) -> dict:

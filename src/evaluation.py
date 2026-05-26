@@ -193,11 +193,14 @@ def create_summary_report(report: dict) -> str:
     for model_name, model_info in report["models"].items():
         summary.append(f"\n{model_info['label']} ({model_info.get('type', 'traditional').upper()})")
         summary.append(f"  Average F1-Score: {model_info['average_f1_score']:.4f}")
-        summary.append(f"  Average Accuracy: {model_info.get('average_accuracy', 'N/A')}")
+        summary.append(
+            f"  Average Balanced Accuracy: {model_info.get('average_balanced_accuracy', model_info.get('average_accuracy', 'N/A'))}"
+        )
 
         for target, metrics in model_info["targets"].items():
             summary.append(f"\n  {target.replace('_', ' ').title()}:")
-            summary.append(f"    • Accuracy:  {metrics['accuracy']:.4f}")
+            balanced_acc = metrics.get("balanced_accuracy", metrics["accuracy"])
+            summary.append(f"    • Balanced Accuracy:  {balanced_acc:.4f}")
             summary.append(f"    • Precision: {metrics['precision']:.4f}")
             summary.append(f"    • Recall:    {metrics['recall']:.4f}")
             summary.append(f"    • F1-Score:  {metrics['f1_score']:.4f}")
@@ -206,6 +209,8 @@ def create_summary_report(report: dict) -> str:
     summary.append(f"Best Model: {report['best_model']['label']}")
     summary.append(f"Type: {report['best_model'].get('type', 'traditional').upper()}")
     summary.append(f"Average F1-Score: {report['best_model']['average_f1_score']:.4f}")
+    if "average_balanced_accuracy" in report["best_model"]:
+        summary.append(f"Average Balanced Accuracy: {report['best_model']['average_balanced_accuracy']:.4f}")
     summary.append(f"{'=' * 80}\n")
 
     return "\n".join(summary)

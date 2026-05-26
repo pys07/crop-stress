@@ -5,13 +5,15 @@ Interactive dashboard for model training, comparison, and field-level prediction
 """
 
 import altair as alt
+import numpy as np
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
+from datetime import datetime
 from urllib.parse import quote
 
-from src.config import MODEL_LABELS, SOIL_PARAMETER_COLUMNS, TARGET_COLUMNS, MODEL_CHARACTERISTICS
+from src.config import MODEL_LABELS, SOIL_PARAMETER_COLUMNS, TARGET_COLUMNS, MODEL_CHARACTERISTICS, REPORTS_DIR
 from src.ml_utils import (
     get_feature_ranges,
     load_dataset,
@@ -79,6 +81,21 @@ RISK_COLORS = {
     "Low": "#2f8f57",
 }
 
+KEY_PREDICTION_FEATURES = {
+    "air_temperature_max",
+    "air_temperature_min",
+    "soil_moisture_10cm",
+    "soil_moisture_30cm",
+    "soil_pH",
+    "day_of_year",
+}
+
+RISK_RANK = {
+    "Low": 0,
+    "Moderate": 1,
+    "High": 2,
+}
+
 
 @st.cache_data
 def get_dataset():
@@ -99,6 +116,21 @@ def load_svg_data_uri(path: str) -> str:
 
 def prettify(name: str) -> str:
     return name.replace("_", " ").replace("VPD", "VPD").title()
+
+
+def get_primary_model_name(report: dict, preferred: str = "bilstm") -> str:
+    models = report.get("models", {})
+    if preferred in models:
+        return preferred
+
+    best_model_name = report.get("best_model", {}).get("name")
+    if best_model_name in models:
+        return best_model_name
+
+    if models:
+        return next(iter(models))
+
+    raise ValueError("No trained models available in the report.")
 
 
 def get_theme_name() -> str:
@@ -427,6 +459,25 @@ def inject_styles(theme_name: str):
             color: {theme["text"]};
             font-weight: 600;
         }}
+        @media (max-width: 780px) {{
+            .block-container {{
+                padding-top: 1rem;
+                padding-bottom: 1rem;
+            }}
+            .hero-panel {{
+                padding: 1.4rem 1.5rem;
+            }}
+            .hero-plant {{
+                display: none;
+            }}
+            div[data-testid="stSidebar"] {{
+                min-width: 220px;
+                width: 220px;
+            }}
+            .nav-help {{
+                display: none;
+            }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -450,9 +501,19 @@ def render_top_nav() -> str:
     """Render sidebar navigation."""
     with st.sidebar:
         st.markdown("## Navigation")
+        page_options = ["Home", "Dashboard", "Predictor", "Model Lab", "Analysis", "Project Info"]
+        # If another widget requested a navigation change earlier in the app,
+        # apply it now before instantiating the radio widget to avoid Streamlit
+        # complaining about modifying a widget-backed session key.
+        if "goto_page" in st.session_state:
+            st.session_state.nav_page = st.session_state.pop("goto_page")
+        if "nav_page" not in st.session_state:
+            st.session_state.nav_page = "Home"
         page = st.radio(
             "Go to",
-            ["Home", "Dashboard", "Predictor", "Model Lab", "Analysis", "Project Info"],
+            page_options,
+            index=page_options.index(st.session_state.nav_page),
+            key="nav_page",
             label_visibility="collapsed",
         )
         selected_theme = st.toggle("Dark mode", value=get_theme_name() == "Dark", key="dark_mode_toggle")
@@ -467,21 +528,43 @@ def render_top_nav() -> str:
 def compute_overview(df: pd.DataFrame, report: dict) -> dict:
     total_records = len(df)
     total_fields = int(df["field_id"].nunique()) if "field_id" in df.columns else 0
-    date_min = df["date"].min()
-    date_max = df["date"].max()
-    if pd.isna(date_min) or pd.isna(date_max):
+    if "date" in df.columns:
+        date_min = df["date"].min()
+        date_max = df["date"].max()
+    else:
+        date_min = None
+        date_max = None
+    if date_min is None or date_max is None or pd.isna(date_min) or pd.isna(date_max):
         date_range = "Date range unavailable"
+        year_count = None
     else:
         date_range = f"{date_min.date()} to {date_max.date()}"
-    stress_rates = {target: float(df[target].mean() * 100) for target in TARGET_COLUMNS}
+        year_count = max((date_max - date_min).days / 365.25, 0)
+    stress_rates = {}
+    for target in TARGET_COLUMNS:
+        if target in df.columns:
+            rate = float(df[target].mean() * 100)
+            stress_rates[target] = rate if np.isfinite(rate) else 0.0
+        else:
+            stress_rates[target] = 0.0
     return {
         "total_records": total_records,
         "total_fields": total_fields,
         "date_range": date_range,
+        "year_count": year_count,
         "best_model": report["best_model"]["label"],
         "best_score": report["best_model"]["average_f1_score"],
+        "best_accuracy": report["best_model"].get("average_accuracy", report["best_model"]["average_f1_score"]),
         "stress_rates": stress_rates,
     }
+
+
+def get_report_metadata() -> dict:
+    report_path = REPORTS_DIR / "training_report.json"
+    if not report_path.exists():
+        return {"last_trained": "Unavailable"}
+    last_trained = datetime.fromtimestamp(report_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    return {"last_trained": last_trained}
 
 
 def get_chart_theme(theme_name: str) -> alt.ThemeConfig:
@@ -519,12 +602,107 @@ def slider_value(details: dict) -> tuple[float, float, float]:
     return minimum, maximum, default
 
 
+def default_feature_value(details: dict) -> float:
+    baseline = details.get("median", details.get("mean", 0.0))
+    return float(round(baseline, 2))
+
+
+def get_quantile(df: pd.DataFrame, column: str, quantile: float) -> float:
+    if column not in df.columns:
+        return 0.0
+    return float(df[column].quantile(quantile))
+
+
+def compute_alert_thresholds(df: pd.DataFrame) -> dict:
+    return {
+        "temp_high": get_quantile(df, "air_temperature_max", 0.95),
+        "temp_warn": get_quantile(df, "air_temperature_max", 0.85),
+        "temp_min_high": get_quantile(df, "air_temperature_min", 0.95),
+        "temp_min_warn": get_quantile(df, "air_temperature_min", 0.85),
+        "moisture_low": get_quantile(df, "soil_moisture_10cm", 0.1),
+        "moisture_warn": get_quantile(df, "soil_moisture_10cm", 0.2),
+        "moisture_deep_high": get_quantile(df, "soil_moisture_30cm", 0.9),
+        "moisture_deep_warn": get_quantile(df, "soil_moisture_30cm", 0.8),
+        "rain_high": get_quantile(df, "precipitation", 0.9),
+        "rain_low": get_quantile(df, "precipitation", 0.1),
+    }
+
+
+def apply_rule_based_alerts(predictions: dict, payload: dict, thresholds: dict) -> dict:
+    def set_alert(target: str, level: str, reason: str) -> None:
+        current = predictions[target]["risk_level"]
+        if RISK_RANK[level] > RISK_RANK[current]:
+            predictions[target]["risk_level"] = level
+            predictions[target]["alert_reason"] = reason
+            predictions[target]["prediction"] = int(level in {"Moderate", "High"})
+
+    temp_max = payload.get("air_temperature_max")
+    soil_moisture = payload.get("soil_moisture_10cm")
+    deep_moisture = payload.get("soil_moisture_30cm")
+    rainfall = payload.get("precipitation")
+
+    if temp_max is not None and temp_max >= thresholds["temp_high"]:
+        set_alert("temperature_stress", "High", "Air temperature max is very high")
+    elif temp_max is not None and temp_max >= thresholds["temp_warn"]:
+        set_alert("temperature_stress", "Moderate", "Air temperature max is elevated")
+
+    if (
+        soil_moisture is not None
+        and rainfall is not None
+        and temp_max is not None
+        and soil_moisture <= thresholds["moisture_low"]
+        and rainfall <= thresholds["rain_low"]
+        and temp_max >= thresholds["temp_warn"]
+    ):
+        set_alert("water_stress", "High", "Low soil moisture with high temperature and low rainfall")
+    elif (
+        soil_moisture is not None
+        and rainfall is not None
+        and temp_max is not None
+        and soil_moisture <= thresholds["moisture_warn"]
+        and rainfall <= thresholds["rain_low"]
+        and temp_max >= thresholds["temp_warn"]
+    ):
+        set_alert("water_stress", "Moderate", "Low soil moisture with elevated temperature and low rainfall")
+
+    if (
+        deep_moisture is not None
+        and rainfall is not None
+        and temp_max is not None
+        and deep_moisture >= thresholds["moisture_deep_high"]
+        and rainfall >= thresholds["rain_high"]
+        and temp_max <= thresholds["temp_warn"]
+    ):
+        set_alert("waterlogging_stress", "High", "High soil moisture with heavy rainfall and cooler temperatures")
+    elif (
+        deep_moisture is not None
+        and rainfall is not None
+        and temp_max is not None
+        and deep_moisture >= thresholds["moisture_deep_warn"]
+        and rainfall >= thresholds["rain_high"]
+        and temp_max <= thresholds["temp_warn"]
+    ):
+        set_alert("waterlogging_stress", "Moderate", "High soil moisture with heavy rainfall and moderate temperatures")
+
+    return predictions
+
+
+def day_of_year_to_date(day_of_year: float) -> datetime.date:
+    base_date = datetime(2024, 1, 1)
+    offset = int(round(day_of_year)) - 1
+    return (base_date + pd.to_timedelta(offset, unit="D")).date()
+
+
 def build_input_form(feature_ranges: dict, selected_features: list[str]) -> dict:
     st.markdown('<div class="section-tag">Field Input</div>', unsafe_allow_html=True)
     st.subheader("Enter Soil and Weather Parameters")
-    st.caption("Only the most important inputs from the dataset are used here.")
+    st.caption("Enter the key inputs below. Remaining model features are filled automatically from historical medians.")
 
-    payload = {}
+    payload = {
+        feature: default_feature_value(feature_ranges[feature])
+        for feature in selected_features
+        if feature in feature_ranges
+    }
     soil_features = [feature for feature in selected_features if feature in SOIL_PARAMETER_COLUMNS]
     other_features = [feature for feature in selected_features if feature not in soil_features]
 
@@ -533,14 +711,33 @@ def build_input_form(feature_ranges: dict, selected_features: list[str]) -> dict
     with left:
         st.markdown("### Soil Parameters")
         for feature in soil_features:
+            if feature not in KEY_PREDICTION_FEATURES:
+                continue
             minimum, maximum, default = slider_value(feature_ranges[feature])
             payload[feature] = st.slider(prettify(feature), min_value=minimum, max_value=maximum, value=default)
 
     with right:
         st.markdown("### Weather and Time Parameters")
         for feature in other_features:
+            if feature == "day_of_year":
+                minimum, maximum, default = slider_value(feature_ranges[feature])
+                selected_date = st.date_input(
+                    "Day of Year",
+                    value=day_of_year_to_date(default),
+                    min_value=datetime(2020, 1, 1).date(),
+                    max_value=datetime(2030, 12, 31).date(),
+                )
+                payload[feature] = selected_date.timetuple().tm_yday
+                continue
+            if feature not in KEY_PREDICTION_FEATURES:
+                continue
             minimum, maximum, default = slider_value(feature_ranges[feature])
             payload[feature] = st.slider(prettify(feature), min_value=minimum, max_value=maximum, value=default)
+
+        if "precipitation" in feature_ranges:
+            st.markdown("#### Rainfall")
+            minimum, maximum, default = slider_value(feature_ranges["precipitation"])
+            payload["precipitation"] = st.slider("Rainfall", min_value=minimum, max_value=maximum, value=default)
 
     return payload
 
@@ -550,6 +747,7 @@ def render_prediction_cards(predictions: dict):
     for column, (target, details) in zip(columns, predictions.items()):
         border = RISK_COLORS[details["risk_level"]]
         with column:
+            alert_reason = details.get("alert_reason")
             st.markdown(
                 f"""
                 <div class="glass-card" style="border-left: 6px solid {border};">
@@ -557,6 +755,7 @@ def render_prediction_cards(predictions: dict):
                     <div class="stat-value">{details['probability'] * 100:.1f}%</div>
                     <div class="stat-note">{details['risk_level']} risk</div>
                     <div class="stat-note">{'Stress predicted' if details['prediction'] else 'No stress predicted'}</div>
+                    {f'<div class="stat-note">{alert_reason}</div>' if alert_reason else ''}
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -582,10 +781,10 @@ def render_recommendations(predictions: dict):
 
 def render_home_page(df: pd.DataFrame, report: dict, overview: dict):
     plant_svg = load_svg_data_uri(ASSET_PLANT_SVG)
-    year_count = 6
-    coverage_range = "2020-01-01 to 2025-12-31"
-    primary_model_name = "bilstm"
+    primary_model_name = get_primary_model_name(report)
     primary_label = report["models"][primary_model_name]["label"]
+    coverage_range = "01-01-2020 to 31-12-2025"
+    coverage_years = "5 years"
     st.markdown(
         f"""
         <div class="hero-panel">
@@ -606,9 +805,9 @@ def render_home_page(df: pd.DataFrame, report: dict, overview: dict):
     with col2:
         show_card("Fields Monitored", str(overview["total_fields"]), "Distinct farm plots")
     with col3:
-        show_card("Best Model", overview["best_model"], f"F1: {overview['best_score']:.3f}")
+        show_card("Best Model", overview["best_model"], f"Accuracy: {overview['best_accuracy']:.3f}")
     with col4:
-        show_card("Coverage", coverage_range, f"{year_count} years")
+        show_card("Coverage", coverage_range, coverage_years)
 
     left, right = st.columns([1.1, 0.9])
     with left:
@@ -625,7 +824,7 @@ def render_home_page(df: pd.DataFrame, report: dict, overview: dict):
             f"""
             <div class="model-highlight">
                 <h3>{overview["best_model"]}</h3>
-                <div class="stat-value" style="font-size: 1.6rem; margin-top: 0.2rem;">F1 {overview["best_score"]:.3f}</div>
+                <div class="stat-value" style="font-size: 1.6rem; margin-top: 0.2rem;">Accuracy {overview["best_accuracy"]:.3f}</div>
                 <div class="stat-note">Balanced accuracy and latency for production use.</div>
                 <span class="pill-badge">Recommended</span>
             </div>
@@ -645,10 +844,25 @@ def render_home_page(df: pd.DataFrame, report: dict, overview: dict):
         )
         st.markdown(f"<div class=\"stress-gauge-grid\">{gauge_cards}</div>", unsafe_allow_html=True)
 
+    st.markdown("### Quick Start")
+    st.write("1. Choose a model in Predictor. 2. Adjust soil and weather inputs. 3. Run a live prediction.")
+    if st.button("Start Prediction", use_container_width=True):
+        # Set a transient flag so navigation is applied before the sidebar
+        # widget with key `nav_page` is instantiated (avoids Streamlit error).
+        st.session_state.goto_page = "Predictor"
+        st.rerun()
+
 
 def render_dashboard_page(df: pd.DataFrame, report: dict, theme_name: str):
     st.markdown('<div class="section-tag">Analytics Dashboard</div>', unsafe_allow_html=True)
     st.title("Field Analytics & Model Performance")
+
+    overview = compute_overview(df, report)
+    report_meta = get_report_metadata()
+    st.caption(
+        f"Dataset: {overview['total_records']:,} records | Fields: {overview['total_fields']} | "
+        f"Coverage: {overview['date_range']} | Last trained: {report_meta['last_trained']}"
+    )
 
     if "field_id" in df.columns:
         field_options = ["All Fields"] + sorted(df["field_id"].dropna().unique().tolist())
@@ -700,23 +914,40 @@ def render_dashboard_page(df: pd.DataFrame, report: dict, theme_name: str):
 
     with col2:
         st.markdown("### Stress Distribution")
-        stress_frame = pd.DataFrame(
-            {
-                "Stress Type": [prettify(target) for target in TARGET_COLUMNS],
-                "Rate": [filtered_df[target].mean() * 100 for target in TARGET_COLUMNS],
-            }
-        )
-        donut_chart = (
-            alt.Chart(stress_frame)
-            .mark_arc(innerRadius=70, outerRadius=120, cornerRadius=8)
-            .encode(
-                theta=alt.Theta("Rate:Q"),
-                color=alt.Color("Stress Type:N"),
-                tooltip=[alt.Tooltip("Stress Type:N"), alt.Tooltip("Rate:Q", format=".2f")],
+        stress_rows = []
+        for target in TARGET_COLUMNS:
+            if target not in filtered_df.columns:
+                rate = 0.0
+            else:
+                rate = float(filtered_df[target].mean() * 100)
+            if not np.isfinite(rate):
+                rate = 0.0
+            stress_rows.append({"Stress Type": prettify(target), "Rate": rate})
+        stress_frame = pd.DataFrame(stress_rows).fillna(0.0)
+
+        if stress_frame["Rate"].sum() == 0:
+            st.info("No stress distribution available for the selected filter.")
+        else:
+            donut_chart = (
+                alt.Chart(stress_frame)
+                .mark_arc(innerRadius=70, outerRadius=120, cornerRadius=8)
+                .encode(
+                    theta=alt.Theta("Rate:Q"),
+                    color=alt.Color("Stress Type:N"),
+                    tooltip=[alt.Tooltip("Stress Type:N"), alt.Tooltip("Rate:Q", format=".2f")],
+                )
+                .properties(height=300)
             )
-            .properties(height=300)
-        )
-        themed_chart(donut_chart, theme_name)
+            label_chart = (
+                alt.Chart(stress_frame[stress_frame["Rate"] > 0])
+                .mark_text(radius=130, size=12, fontWeight="bold")
+                .encode(
+                    theta=alt.Theta("Rate:Q"),
+                    text=alt.Text("Rate:Q", format=".1f"),
+                    color=alt.value(THEMES[theme_name]["chart_text"]),
+                )
+            )
+            themed_chart(donut_chart + label_chart, theme_name)
 
     # Metrics comparison table
     st.markdown("### Target Metrics Snapshot")
@@ -727,7 +958,9 @@ def render_dashboard_page(df: pd.DataFrame, report: dict, theme_name: str):
                 {
                     "Model": details["label"],
                     "Stress Type": prettify(target),
-                    "Accuracy": target_metrics["accuracy"],
+                    "Balanced Accuracy": target_metrics.get(
+                        "balanced_accuracy", target_metrics["accuracy"]
+                    ),
                     "Precision": target_metrics["precision"],
                     "Recall": target_metrics["recall"],
                     "F1-Score": target_metrics["f1_score"],
@@ -751,19 +984,20 @@ def render_predictor_page(df: pd.DataFrame, report: dict):
     st.write("Enter soil and weather conditions to estimate crop stress probabilities.")
 
     selected_features = report["selected_features"]
-    feature_ranges = get_feature_ranges(df, selected_features)
+    feature_ranges = get_feature_ranges(df, selected_features + ["precipitation"])
 
     # Enhanced model selection with information
     col1, col2 = st.columns([1.2, 0.9])
 
     with col1:
         st.markdown("### Select Prediction Model")
-        model_options = list(MODEL_LABELS.keys())
-        default_index = model_options.index("bilstm") if "bilstm" in model_options else 0
+        model_options = list(report["models"].keys())
+        default_model_name = get_primary_model_name(report)
+        default_index = model_options.index(default_model_name) if default_model_name in model_options else 0
         model_name = st.radio(
             "Choose model",
             options=model_options,
-            format_func=lambda key: f"{MODEL_LABELS[key]}",
+            format_func=lambda key: f"{report['models'][key]['label']}",
             horizontal=True,
             index=default_index,
             label_visibility="collapsed",
@@ -772,8 +1006,10 @@ def render_predictor_page(df: pd.DataFrame, report: dict):
     with col2:
         st.markdown("### Model Snapshot")
         model_info = report["models"][model_name]
+        avg_bal_acc = model_info.get("average_balanced_accuracy", model_info["average_accuracy"])
         st.metric("F1-Score", f"{model_info['average_f1_score']:.4f}")
-        st.metric("Accuracy", f"{model_info['average_accuracy']:.4f}")
+        st.metric("Balanced Accuracy", f"{avg_bal_acc:.4f}")
+        st.caption("F1 balances precision and recall; balanced accuracy accounts for class imbalance.")
         if model_name == report["best_model"]["name"]:
             st.markdown("<span class=\"pill-badge\">Best Model</span>", unsafe_allow_html=True)
 
@@ -788,7 +1024,7 @@ def render_predictor_page(df: pd.DataFrame, report: dict):
                 <div class="stat-note">Balanced accuracy and latency for live inference.</div>
                 <div class="badge-row">
                     <span class="badge-pill">F1 {model_info['average_f1_score']:.3f}</span>
-                    <span class="badge-pill">Acc {model_info['average_accuracy']:.3f}</span>
+                    <span class="badge-pill">Bal Acc {avg_bal_acc:.3f}</span>
                     <span class="badge-pill">Latency 50ms</span>
                 </div>
             </div>
@@ -802,7 +1038,9 @@ def render_predictor_page(df: pd.DataFrame, report: dict):
             {
                 "Model": report["models"][m]["label"],
                 "F1-Score": report["models"][m]["average_f1_score"],
-                "Accuracy": report["models"][m]["average_accuracy"],
+                "Balanced Accuracy": report["models"][m].get(
+                    "average_balanced_accuracy", report["models"][m]["average_accuracy"]
+                ),
                 "Type": report["models"][m].get("type", "traditional").upper(),
             }
             for m in report["models"].keys()
@@ -828,9 +1066,11 @@ def render_predictor_page(df: pd.DataFrame, report: dict):
     st.caption(", ".join(prettify(f) for f in report["soil_parameters"]))
 
     payload = build_input_form(feature_ranges, selected_features)
+    alert_thresholds = compute_alert_thresholds(df)
     if st.button("Predict Stress", use_container_width=True):
         with st.spinner("Analyzing field conditions..."):
             predictions = predict_stress(model_name, payload)
+            predictions = apply_rule_based_alerts(predictions, payload, alert_thresholds)
         st.markdown("### Prediction Results")
         render_prediction_cards(predictions)
         render_recommendations(predictions)
@@ -847,8 +1087,10 @@ def render_model_lab_page(report: dict):
         best_f1 = report["best_model"]["average_f1_score"]
         st.metric("Best F1-Score", f"{best_f1:.4f}")
     with col2:
-        best_acc = report["best_model"]["average_accuracy"]
-        st.metric("Best Accuracy", f"{best_acc:.4f}")
+        best_bal_acc = report["best_model"].get(
+            "average_balanced_accuracy", report["best_model"]["average_accuracy"]
+        )
+        st.metric("Best Balanced Accuracy", f"{best_bal_acc:.4f}")
     with col3:
         model_count = len(report["models"])
         st.metric("Models Trained", str(model_count))
@@ -860,7 +1102,7 @@ def render_model_lab_page(report: dict):
     st.markdown("### Comprehensive Model Comparison")
     col1, col2 = st.columns([1.5, 1])
 
-    primary_model_name = "bilstm"
+    primary_model_name = get_primary_model_name(report)
     primary_details = report["models"][primary_model_name]
     
     with col1:
@@ -869,8 +1111,8 @@ def render_model_lab_page(report: dict):
                 "Model": details["label"],
                 "Type": details.get("type", "traditional").upper(),
                 "Avg F1": details["average_f1_score"],
-                "Accuracy": details.get("average_accuracy", 0),
-                "Status": "PRIMARY" if name == primary_model_name else ("BEST" if name == report["best_model"]["name"] else ""),
+                "Balanced Accuracy": details.get("average_balanced_accuracy", details.get("average_accuracy", 0)),
+                "Status": "" if name == primary_model_name else ("BEST" if name == report["best_model"]["name"] else ""),
             }
             for name, details in report["models"].items()
         ])
@@ -943,6 +1185,13 @@ def render_analysis_page(report: dict, df: pd.DataFrame):
     """Render detailed analysis page."""
     st.markdown('<div class="section-tag">Detailed Analysis</div>', unsafe_allow_html=True)
     st.title("Comprehensive Model Analysis")
+
+    overview = compute_overview(df, report)
+    report_meta = get_report_metadata()
+    st.caption(
+        f"Dataset: {overview['total_records']:,} records | Fields: {overview['total_fields']} | "
+        f"Coverage: {overview['date_range']} | Last trained: {report_meta['last_trained']}"
+    )
 
     analysis_type = st.selectbox(
         "Select Analysis Type",
@@ -1038,7 +1287,7 @@ def render_scope_page(report: dict):
                 <div class="timeline-marker">5</div>
                 <div>
                     <div class="timeline-title">Evaluation</div>
-                    <div class="timeline-desc">Calculate comprehensive metrics (F1, Accuracy, AUC)</div>
+                    <div class="timeline-desc">Calculate comprehensive metrics (F1, Balanced Accuracy, AUC)</div>
                 </div>
             </div>
             <div class="timeline-item">

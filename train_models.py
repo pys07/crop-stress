@@ -49,7 +49,7 @@ def main():
             print(
                 f"{rank}. {model_info['label']:25} "
                 f"F1: {model_info['average_f1_score']:.4f}  "
-                f"Accuracy: {model_info.get('average_accuracy', 'N/A')}"
+                f"Balanced Accuracy: {model_info.get('average_balanced_accuracy', model_info.get('average_accuracy', 'N/A'))}"
             )
 
         print("\n" + "▶" * 40)
