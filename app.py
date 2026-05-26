@@ -435,6 +435,81 @@ def inject_styles(theme_name: str):
         div[data-testid="stSidebar"] {{
             background: {theme["panel"]};
         }}
+        div[data-testid="stSidebar"] > div:first-child {{
+            padding: 1.5rem 1.2rem 1.2rem 1.2rem;
+        }}
+        .sidebar-panel {{
+            border-radius: 18px;
+            padding: 1.1rem 1.1rem 0.9rem 1.1rem;
+            background: linear-gradient(160deg, rgba(76, 154, 111, 0.12), rgba(26, 74, 74, 0.08));
+            border: 1px solid {theme["panel_border"]};
+            box-shadow: 0 14px 28px rgba(19, 32, 28, 0.14);
+            position: relative;
+            overflow: hidden;
+        }}
+        .sidebar-panel::after {{
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at top right, rgba(76, 154, 111, 0.2), transparent 55%);
+            pointer-events: none;
+        }}
+        .sidebar-accent {{
+            width: 44px;
+            height: 6px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, {theme["accent"]}, rgba(76, 154, 111, 0.4));
+            margin-bottom: 0.6rem;
+        }}
+        .sidebar-logo {{
+            width: 64px;
+            height: 64px;
+            object-fit: contain;
+            display: block;
+            margin-bottom: 0.6rem;
+            filter: drop-shadow(0 8px 16px rgba(0,0,0,0.35));
+        }}
+        .sidebar-title {{
+            font-family: "Playfair Display", "Times New Roman", serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: {theme["text"]};
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }}
+        .sidebar-subtitle {{
+            color: {theme["muted"]};
+            margin: 0.35rem 0 1rem 0;
+            font-size: 0.9rem;
+        }}
+        .sidebar-section-title {{
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: {theme["muted"]};
+            margin: 0.9rem 0 0.6rem 0;
+        }}
+        div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {{
+            border: 1px solid {theme["panel_border"]};
+            border-radius: 12px;
+            padding: 0.55rem 0.75rem;
+            margin-bottom: 0.5rem;
+            background: rgba(255, 255, 255, 0.04);
+            transition: all 0.2s ease;
+        }}
+        div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {{
+            border-color: {theme["accent"]};
+            box-shadow: 0 10px 18px rgba(19, 32, 28, 0.12);
+        }}
+        div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:has(input:checked) {{
+            border-color: {theme["accent"]};
+            background: rgba(76, 154, 111, 0.12);
+            box-shadow: 0 12px 20px rgba(19, 32, 28, 0.16);
+        }}
+        div[data-testid="stSidebar"] .stRadio div[role="radiogroup"] label span {{
+            font-weight: 600;
+            color: {theme["text"]};
+        }}
         div[data-testid="stMetricValue"] {{
             font-weight: 700;
         }}
@@ -500,8 +575,25 @@ def show_card(title: str, value: str, note: str):
 def render_top_nav() -> str:
     """Render sidebar navigation."""
     with st.sidebar:
-        st.markdown("## Navigation")
-        page_options = ["Home", "Dashboard", "Predictor", "Model Lab", "Analysis", "Project Info"]
+        plant_svg = load_svg_data_uri(ASSET_PLANT_SVG)
+        st.markdown(
+            f"<div class=\"sidebar-panel\">"
+            f"<img class=\"sidebar-logo\" src=\"{plant_svg}\" alt=\"logo\"/>"
+            f"<div class=\"sidebar-accent\"></div>"
+            f"<div class=\"sidebar-title\">Navigation</div>"
+            f"<div class=\"sidebar-subtitle\">Choose a workspace view</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div class=\"sidebar-section-title\">Pages</div>", unsafe_allow_html=True)
+        page_keys = ["Home", "Dashboard", "Predictor", "Model Lab", "Analysis", "Project Info"]
+        display_map = {
+            "Home": "🏠 Home",
+            "Dashboard": "📊 Dashboard",
+            "Predictor": "🔮 Predictor",
+            "Model Lab": "🧪 Model Lab",
+            "Analysis": "📈 Analysis",
+            "Project Info": "📄 Project Info",
+        }
         # If another widget requested a navigation change earlier in the app,
         # apply it now before instantiating the radio widget to avoid Streamlit
         # complaining about modifying a widget-backed session key.
@@ -511,17 +603,20 @@ def render_top_nav() -> str:
             st.session_state.nav_page = "Home"
         page = st.radio(
             "Go to",
-            page_options,
-            index=page_options.index(st.session_state.nav_page),
+            page_keys,
+            index=page_keys.index(st.session_state.nav_page),
             key="nav_page",
             label_visibility="collapsed",
+            format_func=lambda k: display_map.get(k, k),
         )
+        st.markdown("<div class=\"sidebar-section-title\">Preferences</div>", unsafe_allow_html=True)
         selected_theme = st.toggle("Dark mode", value=get_theme_name() == "Dark", key="dark_mode_toggle")
         st.session_state.theme_name = "Dark" if selected_theme else "Light"
         st.markdown(
             '<div class="nav-help">Navigate between overview, analytics, predictions, and project details.</div>',
             unsafe_allow_html=True,
         )
+        st.markdown("</div>", unsafe_allow_html=True)
     return page
 
 
